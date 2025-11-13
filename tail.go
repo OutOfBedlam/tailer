@@ -66,8 +66,8 @@ func WithPattern(patterns ...string) Option {
 	}
 }
 
-// NewTail creates Tail instance
-func NewTail(filepath string, opts ...Option) *Tail {
+// New creates Tail instance
+func New(filepath string, opts ...Option) *Tail {
 	t := &Tail{
 		filepath:     filepath,
 		bufferSize:   100,

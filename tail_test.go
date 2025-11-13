@@ -23,7 +23,7 @@ func TestTail(t *testing.T) {
 	f.Close()
 
 	// Start tailing
-	tail := NewTail(testFile, WithPollInterval(100*time.Millisecond))
+	tail := New(testFile, WithPollInterval(100*time.Millisecond))
 	if err := tail.Start(); err != nil {
 		t.Fatalf("Failed to start tail: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestTailRotation(t *testing.T) {
 	f.Close()
 
 	// Start tailing
-	tail := NewTail(testFile, WithPollInterval(100*time.Millisecond))
+	tail := New(testFile, WithPollInterval(100*time.Millisecond))
 	if err := tail.Start(); err != nil {
 		t.Fatalf("Failed to start tail: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestTailTruncation(t *testing.T) {
 	f.Close()
 
 	// Start tailing
-	tail := NewTail(testFile, WithPollInterval(100*time.Millisecond))
+	tail := New(testFile, WithPollInterval(100*time.Millisecond))
 	if err := tail.Start(); err != nil {
 		t.Fatalf("Failed to start tail: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestTailGrepPattern(t *testing.T) {
 	fmt.Fprintln(f, "info: all is well")
 	f.Close()
 
-	tail := NewTail(testFile, WithPollInterval(100*time.Millisecond), WithPattern("error", "thing"), WithPattern("info:"))
+	tail := New(testFile, WithPollInterval(100*time.Millisecond), WithPattern("error", "thing"), WithPattern("info:"))
 	if err := tail.Start(); err != nil {
 		t.Fatalf("Failed to start tail: %v", err)
 	}
