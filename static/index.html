@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xterm.js Example</title>
+
+    <style>
+        body {
+            margin: 0;
+            background-color: #0d1117;
+            color: white;
+            font-family: "Monaspace Neon", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        #terminal {
+            height: calc(100vh - 10px);
+            width: calc(100% - 20px);
+            max-width: 1400px;
+            padding: 8px;
+            background-color: #1e1e1e;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            user-select: none;
+            /* Disable text selection */
+            -ms-user-select: none;
+            /* IE 10+ */
+            -moz-user-select: none;
+            /* Firefox */
+            -webkit-user-select: none;
+            /* Safari */
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Terminal container -->
+    <div id="terminal"></div>
+
+    <!-- Xterm.js CSS -->
+    <link rel="stylesheet" href="xterm.css" />
+    <!-- Xterm.js JS -->
+    <script src="xterm.js"></script>
+    <script src="addon-fit.min.js"></script>
+    <!-- <script src="addon-attach.min.js"></script> -->
+    <script src="addon-webgl.min.js"></script>
+
+    <script>
+        // Create a new terminal instance
+        const term = new Terminal({
+            cursorBlink: false,  // No cursor needed for log viewer
+            fontSize: 14,        // Font size in pixels
+            fontFamily: '"Monaspace Neon", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace', // Monospace font
+            theme: {
+                background: '#1e1e1e',
+                foreground: '#ffffff'
+            },
+            scrollback: 5000,    // Keep last 5000 lines
+            disableStdin: true   // Read-only terminal
+        });
+
+        // Create fit addon instance
+        const fitAddon = new window.FitAddon.FitAddon();
+        const webglAddon = new window.WebglAddon.WebglAddon();
+
+        // Load addon into terminal
+        term.loadAddon(fitAddon);
+        term.loadAddon(webglAddon);
+
+        // Attach terminal to the DOM
+        term.open(document.getElementById('terminal'));
+
+        // Fit terminal to container
+        fitAddon.fit();
+
+        // Refit on window resize
+        window.addEventListener('resize', () => fitAddon.fit());
+
+        // Auto-scroll management
+        let autoScroll = true;
+        let lastScrollTop = 0;
+
+        // Monitor user scrolling to disable/enable auto-scroll
+        term.element.querySelector('.xterm-viewport').addEventListener('scroll', (e) => {
+            const viewport = e.target;
+            const scrollTop = viewport.scrollTop;
+            const scrollHeight = viewport.scrollHeight;
+            const clientHeight = viewport.clientHeight;
+            
+            // Check if user scrolled to the bottom (with small threshold)
+            const isAtBottom = Math.abs(scrollHeight - scrollTop - clientHeight) < 5;
+            
+            // Enable auto-scroll when user manually scrolls to bottom
+            if (isAtBottom) {
+                autoScroll = true;
+            } 
+            // Disable auto-scroll when user scrolls up
+            else if (scrollTop < lastScrollTop) {
+                autoScroll = false;
+            }
+            
+            lastScrollTop = scrollTop;
+        });
+
+        // Function to scroll to bottom
+        function scrollToBottom() {
+            if (autoScroll) {
+                term.scrollToBottom();
+            }
+        }
+
+        // Connect to SSE endpoint
+        //const eventSource = new EventSource('http://127.0.0.1:3000/debug/logs');
+        const eventSource = new EventSource('./watch.stream');
+        
+        eventSource.onopen = () => {
+            term.writeln('\x1b[32mConnected to log stream...\x1b[0m');
+            term.writeln('');
+        };
+
+        eventSource.onmessage = (event) => {
+            // Write each log line to terminal
+            term.writeln(event.data);
+            // Auto-scroll to bottom if enabled
+            scrollToBottom();
+        };
+
+        eventSource.onerror = (error) => {
+            term.writeln('\x1b[31mConnection error. Retrying...\x1b[0m');
+            console.error('SSE Error:', error);
+        };
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            eventSource.close();
+        });
+    </script>
+</body>
+
+</html>
