@@ -20,10 +20,70 @@
             box-sizing: border-box;
         }
 
-        #terminal {
+        #container {
             height: calc(100vh - 10px);
             width: calc(100% - 20px);
             max-width: 1400px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        #filter-bar {
+            display: flex;
+            gap: 8px;
+            padding: 10px;
+            background-color: #1e1e1e;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        #filter-input {
+            flex: 1;
+            padding: 8px 12px;
+            background-color: #2d2d2d;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: white;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        #filter-input:focus {
+            outline: none;
+            border-color: #0078d4;
+        }
+
+        .filter-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        #apply-btn {
+            background-color: #0078d4;
+            color: white;
+        }
+
+        #apply-btn:hover {
+            background-color: #005a9e;
+        }
+
+        #clear-btn {
+            background-color: #444;
+            color: white;
+        }
+
+        #clear-btn:hover {
+            background-color: #555;
+        }
+
+        #terminal {
+            flex: 1;
             padding: 8px;
             background-color: #1e1e1e;
             border-radius: 12px;
@@ -41,8 +101,18 @@
 </head>
 
 <body>
-    <!-- Terminal container -->
-    <div id="terminal"></div>
+    <!-- Container for filter bar and terminal -->
+    <div id="container">
+        <!-- Filter bar -->
+        <div id="filter-bar">
+            <input type="text" id="filter-input" placeholder="Enter filter text..." />
+            <button id="apply-btn" class="filter-btn">Apply</button>
+            <button id="clear-btn" class="filter-btn">Clear</button>
+        </div>
+
+        <!-- Terminal container -->
+        <div id="terminal"></div>
+    </div>
 
     <!-- Xterm.js CSS -->
     <link rel="stylesheet" href="xterm.css" />
@@ -116,29 +186,76 @@
             }
         }
 
-        // Connect to SSE endpoint
-        const eventSource = new EventSource('./watch.stream');
-        
-        eventSource.onopen = () => {
-            term.writeln('\x1b[32mConnected to log stream...\x1b[0m');
-            term.writeln('');
-        };
+        // SSE connection management
+        let eventSource = null;
+        let currentFilter = '';
 
-        eventSource.onmessage = (event) => {
-            // Write each log line to terminal
-            term.writeln(event.data);
-            // Auto-scroll to bottom if enabled
-            scrollToBottom();
-        };
+        function connectSSE(filter = '') {
+            // Close existing connection if any
+            if (eventSource) {
+                eventSource.close();
+            }
 
-        eventSource.onerror = (error) => {
-            term.writeln('\x1b[31mConnection error. Retrying...\x1b[0m');
-            console.error('SSE Error:', error);
-        };
+            // Clear terminal
+            term.clear();
+
+            // Build URL with filter parameter
+            const url = filter ? `./watch.stream?filter=${encodeURIComponent(filter)}` : './watch.stream';
+            currentFilter = filter;
+
+            // Connect to SSE endpoint
+            eventSource = new EventSource(url);
+            
+            eventSource.onopen = () => {
+                const filterMsg = filter ? ` (filter: "${filter}")` : '';
+                term.writeln(`\x1b[32mConnected to log stream${filterMsg}...\x1b[0m`);
+                term.writeln('');
+            };
+
+            eventSource.onmessage = (event) => {
+                // Write each log line to terminal
+                term.writeln(event.data);
+                // Auto-scroll to bottom if enabled
+                scrollToBottom();
+            };
+
+            eventSource.onerror = (error) => {
+                term.writeln('\x1b[31mConnection error. Retrying...\x1b[0m');
+                console.error('SSE Error:', error);
+            };
+        }
+
+        // Initial connection without filter
+        connectSSE();
+
+        // Filter controls
+        const filterInput = document.getElementById('filter-input');
+        const applyBtn = document.getElementById('apply-btn');
+        const clearBtn = document.getElementById('clear-btn');
+
+        applyBtn.addEventListener('click', () => {
+            const filter = filterInput.value.trim();
+            connectSSE(filter);
+        });
+
+        clearBtn.addEventListener('click', () => {
+            filterInput.value = '';
+            connectSSE();
+        });
+
+        // Allow Enter key to apply filter
+        filterInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const filter = filterInput.value.trim();
+                connectSSE(filter);
+            }
+        });
 
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
-            eventSource.close();
+            if (eventSource) {
+                eventSource.close();
+            }
         });
     </script>
 </body>

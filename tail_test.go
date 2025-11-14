@@ -39,11 +39,11 @@ func TestTail(t *testing.T) {
 	fmt.Fprintln(f, "line 4")
 	f.Close()
 
-	// Read the new lines
+	// Read the lines (should include last 2 lines from initial file + 2 new lines)
 	timeout := time.After(2 * time.Second)
 	lines := []string{}
 
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 4; i++ {
 		select {
 		case line := <-tail.Lines():
 			lines = append(lines, line)
@@ -52,16 +52,24 @@ func TestTail(t *testing.T) {
 		}
 	}
 
-	if len(lines) != 2 {
-		t.Fatalf("Expected 2 lines, got %d", len(lines))
+	if len(lines) != 4 {
+		t.Fatalf("Expected 4 lines, got %d: %v", len(lines), lines)
 	}
 
-	if lines[0] != "line 3" {
-		t.Errorf("Expected 'line 3', got '%s'", lines[0])
+	if lines[0] != "line 1" {
+		t.Errorf("Expected 'line 1', got '%s'", lines[0])
 	}
 
-	if lines[1] != "line 4" {
-		t.Errorf("Expected 'line 4', got '%s'", lines[1])
+	if lines[1] != "line 2" {
+		t.Errorf("Expected 'line 2', got '%s'", lines[1])
+	}
+
+	if lines[2] != "line 3" {
+		t.Errorf("Expected 'line 3', got '%s'", lines[2])
+	}
+
+	if lines[3] != "line 4" {
+		t.Errorf("Expected 'line 4', got '%s'", lines[3])
 	}
 }
 
@@ -122,7 +130,8 @@ func TestTailRotation(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	lines := []string{}
 
-	for i := 0; i < 3; i++ {
+	// Should get: line 1 (initial), line 2 (before rotation), line 3 (new file), line 4 (new file)
+	for i := 0; i < 4; i++ {
 		select {
 		case line := <-tail.Lines():
 			lines = append(lines, line)
@@ -132,17 +141,21 @@ func TestTailRotation(t *testing.T) {
 		}
 	}
 
-	// Should have read line 2 from old file, and lines from new file
-	if len(lines) < 2 {
-		t.Fatalf("Expected at least 2 lines, got %d: %v", len(lines), lines)
+	// Should have read initial line, line 2 from old file, and lines from new file
+	if len(lines) < 3 {
+		t.Fatalf("Expected at least 3 lines, got %d: %v", len(lines), lines)
 	}
 
-	// Check that we got line 2
+	// Check that we got the lines
+	foundLine1 := false
 	foundLine2 := false
 	foundLine3 := false
 	foundLine4 := false
 
 	for _, line := range lines {
+		if line == "line 1" {
+			foundLine1 = true
+		}
 		if line == "line 2" {
 			foundLine2 = true
 		}
@@ -154,6 +167,9 @@ func TestTailRotation(t *testing.T) {
 		}
 	}
 
+	if !foundLine1 {
+		t.Error("Did not find 'line 1' from initial file")
+	}
 	if !foundLine2 {
 		t.Error("Did not find 'line 2' from old file")
 	}
@@ -209,16 +225,54 @@ func TestTailTruncation(t *testing.T) {
 	// Wait for the data to be read
 	time.Sleep(150 * time.Millisecond)
 
-	// Read the new line
+	// Read the lines (should include last 2 from initial + line after truncate)
 	timeout := time.After(2 * time.Second)
+	lines := []string{}
 
-	select {
-	case line := <-tail.Lines():
-		if line != "line 3 (after truncate)" {
-			t.Errorf("Expected 'line 3 (after truncate)', got '%s'", line)
+	for i := 0; i < 3; i++ {
+		select {
+		case line := <-tail.Lines():
+			lines = append(lines, line)
+		case <-timeout:
+			if i < 3 {
+				// We expect at least the initial lines and the line after truncate
+				t.Logf("Got %d lines: %v", len(lines), lines)
+				break
+			}
+			t.Fatal("Timeout waiting for line after truncation")
 		}
-	case <-timeout:
-		t.Fatal("Timeout waiting for line after truncation")
+	}
+
+	// Should have initial lines plus line after truncate
+	if len(lines) < 3 {
+		t.Fatalf("Expected at least 3 lines, got %d: %v", len(lines), lines)
+	}
+
+	// Check we got the expected lines
+	foundLine1 := false
+	foundLine2 := false
+	foundLine3 := false
+
+	for _, line := range lines {
+		if line == "line 1" {
+			foundLine1 = true
+		}
+		if line == "line 2" {
+			foundLine2 = true
+		}
+		if line == "line 3 (after truncate)" {
+			foundLine3 = true
+		}
+	}
+
+	if !foundLine1 {
+		t.Error("Did not find 'line 1' from initial file")
+	}
+	if !foundLine2 {
+		t.Error("Did not find 'line 2' from initial file")
+	}
+	if !foundLine3 {
+		t.Error("Did not find 'line 3 (after truncate)'")
 	}
 }
 
@@ -259,7 +313,8 @@ func TestTailGrepPattern(t *testing.T) {
 	timeout := time.After(2 * time.Second)
 	lines := []string{}
 
-	for i := 0; i < 3; i++ {
+	// Should get: initial "info: all is well" + 3 new matching lines = 4 total
+	for i := 0; i < 4; i++ {
 		select {
 		case line := <-tail.Lines():
 			lines = append(lines, line)
@@ -270,13 +325,14 @@ func TestTailGrepPattern(t *testing.T) {
 	}
 
 	expectedLines := []string{
+		"info: all is well",
 		"error: something went wrong",
 		"error: another thing error occurred",
 		"info: just an informational message",
 	}
 
 	if len(lines) != len(expectedLines) {
-		t.Fatalf("Expected %d lines, got %d", len(expectedLines), len(lines))
+		t.Fatalf("Expected %d lines, got %d: %v", len(expectedLines), len(lines), lines)
 	}
 
 	for i, expected := range expectedLines {

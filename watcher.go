@@ -49,7 +49,25 @@ func (h handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tail := New(h.Filename, h.tailOpts...)
+	opts := append([]Option{}, h.tailOpts...)
+
+	filterParam := r.URL.Query().Get("filter")
+	filters := strings.Split(filterParam, "||")
+	for _, filter := range filters {
+		splits := strings.Split(filter, "&&")
+		toks := make([]string, 0, len(splits))
+		for _, tok := range splits {
+			tok = strings.TrimSpace(tok)
+			if tok != "" {
+				toks = append(toks, tok)
+			}
+		}
+		if len(toks) > 0 {
+			opts = append(opts, WithPattern(toks...))
+		}
+	}
+
+	tail := New(h.Filename, opts...)
 	if err := tail.Start(); err != nil {
 		http.Error(w, "Failed to start watcher", http.StatusInternalServerError)
 		return

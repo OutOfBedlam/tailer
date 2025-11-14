@@ -18,6 +18,7 @@ type Tail struct {
 	pollInterval time.Duration
 	bufferSize   int
 	patterns     []Pattern
+	showLastN    int
 	file         *os.File
 	lastSize     int64
 	lastInode    uint64
@@ -66,6 +67,12 @@ func WithPattern(patterns ...string) Option {
 	}
 }
 
+func WithLastN(n int) Option {
+	return func(t *Tail) {
+		t.showLastN = n
+	}
+}
+
 // New creates Tail instance
 func New(filepath string, opts ...Option) *Tail {
 	t := &Tail{
@@ -73,6 +80,7 @@ func New(filepath string, opts ...Option) *Tail {
 		bufferSize:   100,
 		stopChan:     make(chan struct{}),
 		pollInterval: 1 * time.Second,
+		showLastN:    10,
 	}
 
 	for _, opt := range opts {
@@ -96,15 +104,125 @@ func (tail *Tail) Start() error {
 		return err
 	}
 
-	// Seek to the end of the file to start tailing
+	// Read last 10 lines before starting to tail
+	if err := tail.readLastLines(tail.showLastN); err != nil {
+		// If we can't read last lines, just seek to end
+		pos, seekErr := tail.file.Seek(0, io.SeekEnd)
+		if seekErr != nil {
+			tail.file.Close()
+			return fmt.Errorf("failed to seek to end: %w", seekErr)
+		}
+		tail.lastPos = pos
+	}
+
+	go tail.run()
+
+	return nil
+}
+
+// readLastLines reads the last n lines from the file and sends them to the channel
+func (tail *Tail) readLastLines(n int) error {
+	stat, err := tail.file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	fileSize := stat.Size()
+	if fileSize == 0 {
+		tail.lastPos = 0
+		return nil
+	}
+
+	// Buffer to read file in chunks from the end
+	const chunkSize = 4096
+	var allData []byte
+	bytesToRead := fileSize
+
+	// Limit how much we read (don't read more than necessary)
+	maxRead := int64(chunkSize * 4) // Read up to 16KB max
+	if bytesToRead > maxRead {
+		bytesToRead = maxRead
+	}
+
+	// Seek to position
+	offset := fileSize - bytesToRead
+	if _, err := tail.file.Seek(offset, io.SeekStart); err != nil {
+		return fmt.Errorf("failed to seek: %w", err)
+	}
+
+	// Read the data
+	buf := make([]byte, bytesToRead)
+	readBytes, err := io.ReadFull(tail.file, buf)
+	if err != nil && err != io.ErrUnexpectedEOF {
+		return fmt.Errorf("failed to read: %w", err)
+	}
+	allData = buf[:readBytes]
+
+	// Split into lines
+	var lines []string
+	var lineStart int
+
+	for i := 0; i < len(allData); i++ {
+		if allData[i] == '\n' {
+			line := string(allData[lineStart:i])
+			// Trim \r if present
+			if len(line) > 0 && line[len(line)-1] == '\r' {
+				line = line[:len(line)-1]
+			}
+			if len(line) > 0 { // Skip empty lines
+				lines = append(lines, line)
+			}
+			lineStart = i + 1
+		}
+	}
+
+	// Handle last line if file doesn't end with newline
+	if lineStart < len(allData) {
+		line := string(allData[lineStart:])
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
+		if len(line) > 0 {
+			lines = append(lines, line)
+		}
+	}
+
+	// Keep only last n lines
+	startIdx := 0
+	if len(lines) > n {
+		startIdx = len(lines) - n
+	}
+	lines = lines[startIdx:]
+
+	// Send lines to channel (in correct order)
+	for _, line := range lines {
+		matched := false
+		if len(tail.patterns) > 0 {
+			for _, p := range tail.patterns {
+				if p.Match(line) {
+					matched = true
+					break
+				}
+			}
+		} else {
+			matched = true
+		}
+
+		if matched {
+			select {
+			case tail.c <- line:
+			case <-tail.stopChan:
+				return nil
+			}
+		}
+	}
+
+	// Seek to end and update position
 	pos, err := tail.file.Seek(0, io.SeekEnd)
 	if err != nil {
-		tail.file.Close()
 		return fmt.Errorf("failed to seek to end: %w", err)
 	}
 	tail.lastPos = pos
-
-	go tail.run()
 
 	return nil
 }
