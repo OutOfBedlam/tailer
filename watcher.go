@@ -15,6 +15,14 @@ type handler struct {
 	tailOpts  []Option
 }
 
+var shutdownCh = make(chan struct{})
+
+// Shutdown signals all SSE handlers to shut down
+// This will cause all active watchers to terminate gracefully.
+func Shutdown() {
+	close(shutdownCh)
+}
+
 func Handler(cutPrefix string, filepath string) http.Handler {
 	return handler{
 		Filename:  filepath,
@@ -65,6 +73,8 @@ func (h handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "data: %s\n\n", colors(line))
 		case <-r.Context().Done():
 			return
+		case <-shutdownCh:
+			return
 		}
 	}
 }
@@ -81,8 +91,8 @@ func (h handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 // For now, it just converts TRACE, DEBUG, INFO, WARN, ERROR to colors
 func colors(line string) string {
 	// Replace log levels with colored versions
-	line = strings.ReplaceAll(line, "TRACE", colorTrace+"TRACE"+colorReset)
-	// line = strings.ReplaceAll(line, "DEBUG", colorDebug+"DEBUG"+colorReset)
+	//line = strings.ReplaceAll(line, "TRACE", colorTrace+"TRACE"+colorReset)
+	line = strings.ReplaceAll(line, "DEBUG", colorDebug+"DEBUG"+colorReset)
 	line = strings.ReplaceAll(line, "INFO", colorInfo+"INFO"+colorReset)
 	line = strings.ReplaceAll(line, "WARN", colorWarn+"WARN"+colorReset)
 	line = strings.ReplaceAll(line, "ERROR", colorError+"ERROR"+colorReset)
@@ -92,11 +102,9 @@ func colors(line string) string {
 
 // ANSI color codes for xterm.js
 const (
-	// colorCyan  = "\033[36m" // Cyan
-	// colorGreen  = "\033[32m" // Green
 	colorReset = "\033[0m"
-	colorTrace = "\033[37m" // Light gray
-	colorInfo  = "\033[34m" // Blue
+	colorDebug = "\033[37m" // Light gray
+	colorInfo  = "\033[32m" // Green
 	colorWarn  = "\033[33m" // Yellow
 	colorError = "\033[31m" // Red
 )

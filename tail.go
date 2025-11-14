@@ -149,6 +149,8 @@ func (tail *Tail) run() {
 
 	for {
 		select {
+		case <-shutdownCh:
+			return
 		case <-tail.stopChan:
 			return
 		case <-ticker.C:
