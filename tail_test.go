@@ -357,3 +357,226 @@ func TestTailGrepPattern(t *testing.T) {
 		}
 	}
 }
+
+func TestTailWithColoringPlugin(t *testing.T) {
+	// Create a temporary file
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.log")
+
+	// Create and write initial content with different log levels
+	f, err := os.Create(testFile)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	fmt.Fprintln(f, "TRACE This is a trace message")
+	fmt.Fprintln(f, "DEBUG This is a debug message")
+	f.Close()
+
+	// Create tail with coloring plugin
+	coloringPlugin := NewColoring("default")
+	tail := New(testFile,
+		WithPollInterval(100*time.Millisecond),
+		WithPlugins(coloringPlugin),
+	)
+
+	if err := tail.Start(); err != nil {
+		t.Fatalf("Failed to start tail: %v", err)
+	}
+	defer func() {
+		tail.Stop()
+		// Give time for file handles to close on Windows
+		time.Sleep(50 * time.Millisecond)
+	}()
+
+	// Append new lines with different log levels
+	f, err = os.OpenFile(testFile, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatalf("Failed to open test file: %v", err)
+	}
+
+	fmt.Fprintln(f, "INFO This is an info message")
+	fmt.Fprintln(f, "WARN This is a warning message")
+	fmt.Fprintln(f, "ERROR This is an error message")
+	f.Close()
+
+	// Read the colored lines
+	timeout := time.After(2 * time.Second)
+	lines := []string{}
+
+	// Should get: 2 initial lines + 3 new lines = 5 total
+	for i := 0; i < 5; i++ {
+		select {
+		case line := <-tail.Lines():
+			lines = append(lines, line)
+		case <-timeout:
+			t.Fatalf("Timeout waiting for lines, got %d lines: %v", len(lines), lines)
+		}
+	}
+
+	if len(lines) != 5 {
+		t.Fatalf("Expected 5 lines, got %d: %v", len(lines), lines)
+	}
+
+	// Check that TRACE has dark gray color codes
+	if lines[0] != "\033[90mTRACE\033[0m This is a trace message" {
+		t.Errorf("Expected TRACE to be colored, got '%s'", lines[0])
+	}
+
+	// Check that DEBUG has light gray color codes
+	if lines[1] != "\033[37mDEBUG\033[0m This is a debug message" {
+		t.Errorf("Expected DEBUG to be colored, got '%s'", lines[1])
+	}
+
+	// Check that INFO has green color codes
+	if lines[2] != "\033[32mINFO\033[0m This is an info message" {
+		t.Errorf("Expected INFO to be colored, got '%s'", lines[2])
+	}
+
+	// Check that WARN has yellow color codes
+	if lines[3] != "\033[33mWARN\033[0m This is a warning message" {
+		t.Errorf("Expected WARN to be colored, got '%s'", lines[3])
+	}
+
+	// Check that ERROR has red color codes
+	if lines[4] != "\033[31mERROR\033[0m This is an error message" {
+		t.Errorf("Expected ERROR to be colored, got '%s'", lines[4])
+	}
+}
+
+func TestTailWithColoringPluginSolarized(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.log")
+
+	f, err := os.Create(testFile)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	fmt.Fprintln(f, "INFO Solarized test")
+	fmt.Fprintln(f, "ERROR Solarized error")
+	f.Close()
+
+	tail := New(testFile,
+		WithPollInterval(100*time.Millisecond),
+		WithPlugins(NewColoring("solarized")),
+	)
+
+	if err := tail.Start(); err != nil {
+		t.Fatalf("Failed to start tail: %v", err)
+	}
+	defer func() {
+		tail.Stop()
+		time.Sleep(50 * time.Millisecond)
+	}()
+
+	timeout := time.After(2 * time.Second)
+	lines := []string{}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case line := <-tail.Lines():
+			lines = append(lines, line)
+		case <-timeout:
+			t.Fatalf("Timeout waiting for lines")
+		}
+	}
+
+	// Verify Solarized colors are applied
+	if lines[0] != "\033[38;5;37mINFO\033[0m Solarized test" {
+		t.Errorf("Expected Solarized INFO color, got '%s'", lines[0])
+	}
+	if lines[1] != "\033[38;5;160mERROR\033[0m Solarized error" {
+		t.Errorf("Expected Solarized ERROR color, got '%s'", lines[1])
+	}
+}
+
+func TestTailWithColoringPluginMolokai(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.log")
+
+	f, err := os.Create(testFile)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	fmt.Fprintln(f, "DEBUG Molokai debug")
+	fmt.Fprintln(f, "WARN Molokai warning")
+	f.Close()
+
+	tail := New(testFile,
+		WithPollInterval(100*time.Millisecond),
+		WithPlugins(NewColoring("molokai")),
+	)
+
+	if err := tail.Start(); err != nil {
+		t.Fatalf("Failed to start tail: %v", err)
+	}
+	defer func() {
+		tail.Stop()
+		time.Sleep(50 * time.Millisecond)
+	}()
+
+	timeout := time.After(2 * time.Second)
+	lines := []string{}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case line := <-tail.Lines():
+			lines = append(lines, line)
+		case <-timeout:
+			t.Fatalf("Timeout waiting for lines")
+		}
+	}
+
+	// Verify Molokai colors are applied
+	if lines[0] != "\033[38;5;141mDEBUG\033[0m Molokai debug" {
+		t.Errorf("Expected Molokai DEBUG color, got '%s'", lines[0])
+	}
+	if lines[1] != "\033[38;5;208mWARN\033[0m Molokai warning" {
+		t.Errorf("Expected Molokai WARN color, got '%s'", lines[1])
+	}
+}
+
+func TestTailWithColoringPluginUbuntu(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.log")
+
+	f, err := os.Create(testFile)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	fmt.Fprintln(f, "TRACE Ubuntu trace")
+	fmt.Fprintln(f, "INFO Ubuntu info")
+	f.Close()
+
+	tail := New(testFile,
+		WithPollInterval(100*time.Millisecond),
+		WithPlugins(NewColoring("ubuntu")),
+	)
+
+	if err := tail.Start(); err != nil {
+		t.Fatalf("Failed to start tail: %v", err)
+	}
+	defer func() {
+		tail.Stop()
+		time.Sleep(50 * time.Millisecond)
+	}()
+
+	timeout := time.After(2 * time.Second)
+	lines := []string{}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case line := <-tail.Lines():
+			lines = append(lines, line)
+		case <-timeout:
+			t.Fatalf("Timeout waiting for lines")
+		}
+	}
+
+	// Verify Ubuntu colors are applied
+	if lines[0] != "\033[38;5;246mTRACE\033[0m Ubuntu trace" {
+		t.Errorf("Expected Ubuntu TRACE color, got '%s'", lines[0])
+	}
+	if lines[1] != "\033[38;5;34mINFO\033[0m Ubuntu info" {
+		t.Errorf("Expected Ubuntu INFO color, got '%s'", lines[1])
+	}
+}

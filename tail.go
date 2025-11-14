@@ -20,6 +20,7 @@ type Tail struct {
 	bufferSize   int
 	patterns     []Pattern
 	showLastN    int
+	plugins      []Plugin
 	file         *os.File
 	lastSize     int64
 	lastInode    uint64
@@ -72,6 +73,12 @@ func WithPattern(patterns ...string) Option {
 func WithLastN(n int) Option {
 	return func(t *Tail) {
 		t.showLastN = n
+	}
+}
+
+func WithPlugins(p ...Plugin) Option {
+	return func(t *Tail) {
+		t.plugins = append(t.plugins, p...)
 	}
 }
 
@@ -211,12 +218,26 @@ func (tail *Tail) readLastLines(n int) error {
 			matched = true
 		}
 
-		if matched {
-			select {
-			case tail.c <- line:
-			case <-tail.stopChan:
-				return nil
+		if !matched {
+			continue
+		}
+		for _, plugin := range tail.plugins {
+			if ln, ok := plugin.Apply(line); ok {
+				line = ln
+			} else {
+				// Plugin indicated to drop the line
+				matched = false
+				break
 			}
+		}
+
+		if !matched {
+			continue
+		}
+		select {
+		case tail.c <- line:
+		case <-tail.stopChan:
+			return nil
 		}
 	}
 
@@ -406,6 +427,25 @@ func (tail *Tail) readLines() {
 						}
 					} else {
 						matched = true
+					}
+
+					if !matched {
+						// Move to next data
+						data = data[nlIdx+1:]
+						lineBuf = lineBuf[:0]
+						tail.lastPos += int64(nlIdx + 1)
+						continue
+					}
+
+					// Apply plugins
+					for _, plugin := range tail.plugins {
+						if ln, ok := plugin.Apply(line); ok {
+							line = ln
+						} else {
+							// Plugin indicated to drop the line
+							matched = false
+							break
+						}
 					}
 
 					if matched {

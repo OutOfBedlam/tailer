@@ -31,6 +31,7 @@ func Handler(cutPrefix string, filepath string) http.Handler {
 		tailOpts: []Option{
 			WithPollInterval(500 * time.Millisecond),
 			WithBufferSize(1000),
+			WithPlugins(NewColoring("default")),
 		},
 	}
 }
@@ -88,7 +89,7 @@ func (h handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 		case <-flushTicker.C:
 			rc.Flush()
 		case line := <-tail.Lines():
-			fmt.Fprintf(w, "data: %s\n\n", colors(line))
+			fmt.Fprintf(w, "data: %s\n\n", line)
 		case <-r.Context().Done():
 			return
 		case <-shutdownCh:
@@ -104,25 +105,3 @@ func (h handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 	r.URL.Path = "static/" + strings.TrimPrefix(r.URL.Path, h.CutPrefix)
 	h.fsServer.ServeHTTP(w, r)
 }
-
-// colors formats a line for xterm js coloring
-// For now, it just converts TRACE, DEBUG, INFO, WARN, ERROR to colors
-func colors(line string) string {
-	// Replace log levels with colored versions
-	//line = strings.ReplaceAll(line, "TRACE", colorTrace+"TRACE"+colorReset)
-	line = strings.ReplaceAll(line, "DEBUG", colorDebug+"DEBUG"+colorReset)
-	line = strings.ReplaceAll(line, "INFO", colorInfo+"INFO"+colorReset)
-	line = strings.ReplaceAll(line, "WARN", colorWarn+"WARN"+colorReset)
-	line = strings.ReplaceAll(line, "ERROR", colorError+"ERROR"+colorReset)
-
-	return line
-}
-
-// ANSI color codes for xterm.js
-const (
-	colorReset = "\033[0m"
-	colorDebug = "\033[37m" // Light gray
-	colorInfo  = "\033[32m" // Green
-	colorWarn  = "\033[33m" // Yellow
-	colorError = "\033[31m" // Red
-)
