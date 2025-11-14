@@ -3,6 +3,7 @@
 package tailer
 
 import (
+	"fmt"
 	"os"
 	"syscall"
 )
@@ -29,4 +30,29 @@ func getFileID(f *os.File) (uint64, error) {
 	// Combine FileIndexHigh and FileIndexLow to create a unique identifier
 	fileID := uint64(info.FileIndexHigh)<<32 | uint64(info.FileIndexLow)
 	return fileID, nil
+}
+
+// openFileShared opens a file in shared mode on Windows
+// This allows the file to be renamed or deleted while it's open
+func openFileShared(filepath string) (*os.File, error) {
+	pathPtr, err := syscall.UTF16PtrFromString(filepath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert path: %w", err)
+	}
+
+	// Open with FILE_SHARE_DELETE to allow the file to be renamed/deleted while open
+	handle, err := syscall.CreateFile(
+		pathPtr,
+		syscall.GENERIC_READ,
+		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE|syscall.FILE_SHARE_DELETE,
+		nil,
+		syscall.OPEN_EXISTING,
+		syscall.FILE_ATTRIBUTE_NORMAL,
+		0,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+
+	return os.NewFile(uintptr(handle), filepath), nil
 }

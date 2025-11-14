@@ -27,7 +27,11 @@ func TestTail(t *testing.T) {
 	if err := tail.Start(); err != nil {
 		t.Fatalf("Failed to start tail: %v", err)
 	}
-	defer tail.Stop()
+	defer func() {
+		tail.Stop()
+		// Give time for file handles to close on Windows
+		time.Sleep(50 * time.Millisecond)
+	}()
 
 	// Append new lines
 	f, err = os.OpenFile(testFile, os.O_APPEND|os.O_WRONLY, 0644)
@@ -91,7 +95,11 @@ func TestTailRotation(t *testing.T) {
 	if err := tail.Start(); err != nil {
 		t.Fatalf("Failed to start tail: %v", err)
 	}
-	defer tail.Stop()
+	defer func() {
+		tail.Stop()
+		// Give time for file handles to close on Windows
+		time.Sleep(50 * time.Millisecond)
+	}()
 
 	// Append a line
 	f, err = os.OpenFile(testFile, os.O_APPEND|os.O_WRONLY, 0644)
@@ -200,7 +208,11 @@ func TestTailTruncation(t *testing.T) {
 	if err := tail.Start(); err != nil {
 		t.Fatalf("Failed to start tail: %v", err)
 	}
-	defer tail.Stop()
+	defer func() {
+		tail.Stop()
+		// Give time for file handles to close on Windows
+		time.Sleep(50 * time.Millisecond)
+	}()
 
 	// Truncate and write new content
 	// First truncate the file
@@ -293,7 +305,11 @@ func TestTailGrepPattern(t *testing.T) {
 	if err := tail.Start(); err != nil {
 		t.Fatalf("Failed to start tail: %v", err)
 	}
-	defer tail.Stop()
+	defer func() {
+		tail.Stop()
+		// Give time for file handles to close on Windows
+		time.Sleep(50 * time.Millisecond)
+	}()
 
 	// Append new lines
 	f, err = os.OpenFile(testFile, os.O_APPEND|os.O_WRONLY, 0644)

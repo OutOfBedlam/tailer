@@ -15,3 +15,9 @@ func getInode(stat os.FileInfo) uint64 {
 	}
 	return 0
 }
+
+// openFileShared opens a file on Unix systems
+// On Unix, files can be renamed/deleted while open by default
+func openFileShared(filepath string) (*os.File, error) {
+	return os.Open(filepath)
+}

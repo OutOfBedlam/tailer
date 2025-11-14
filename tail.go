@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sync"
 	"time"
 )
 
@@ -23,6 +24,7 @@ type Tail struct {
 	lastSize     int64
 	lastInode    uint64
 	lastPos      int64
+	wg           sync.WaitGroup
 }
 
 type Pattern []*regexp.Regexp
@@ -115,6 +117,7 @@ func (tail *Tail) Start() error {
 		tail.lastPos = pos
 	}
 
+	tail.wg.Add(1)
 	go tail.run()
 
 	return nil
@@ -230,6 +233,10 @@ func (tail *Tail) readLastLines(n int) error {
 // Stop stops tailing the file
 func (tail *Tail) Stop() error {
 	close(tail.stopChan)
+
+	// Wait for goroutine to finish before closing the channel
+	tail.wg.Wait()
+
 	close(tail.c)
 
 	if tail.file != nil {
@@ -241,7 +248,7 @@ func (tail *Tail) Stop() error {
 
 // openFile opens the file for tailing
 func (tail *Tail) openFile() error {
-	file, err := os.Open(tail.filepath)
+	file, err := openFileShared(tail.filepath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
@@ -262,6 +269,7 @@ func (tail *Tail) openFile() error {
 
 // run is the main loop that tails the file
 func (tail *Tail) run() {
+	defer tail.wg.Done()
 	ticker := time.NewTicker(tail.pollInterval)
 	defer ticker.Stop()
 
