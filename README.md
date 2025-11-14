@@ -389,6 +389,42 @@ tailer.New(filepath,
 )
 ```
 
+#### `WithPlugins(plugins...Plugin) Option`
+
+Adds one or more plugins to process lines before they are sent to the output channel. Plugins can modify line content (e.g., add ANSI color codes) or drop lines entirely. Each plugin's `Apply(line string) (string, bool)` method is called in order - if it returns `false`, the line is dropped and no further plugins are executed.
+
+Built-in plugins:
+
+- **`NewColoring(style string)`**: Adds ANSI color codes to log levels (TRACE, DEBUG, INFO, WARN, ERROR)
+  - Supported styles: `"default"`, `"solarized"` (or `"solarized-dark"`), `"molokai"`, `"ubuntu"`
+  - Perfect for terminal display with xterm.js or other ANSI-compatible terminals
+
+```go
+// Apply Molokai color theme to log levels
+tail := tailer.New("/var/log/app.log",
+    tailer.WithPlugins(tailer.NewColoring("molokai")),
+)
+
+// Apply multiple plugins (processed in order)
+tail := tailer.New("/var/log/app.log",
+    tailer.WithPlugins(
+        myCustomPlugin,
+        tailer.NewColoring("solarized"),
+    ),
+)
+```
+
+Custom plugins can be created by implementing the `Plugin` interface:
+
+```go
+type Plugin interface {
+    // Apply processes a line and returns the modified line
+    // and a boolean indicating if processing should continue
+    // Return false to drop the line
+    Apply(line string) (string, bool)
+}
+```
+
 ## How It Works
 
 ### File Rotation Detection

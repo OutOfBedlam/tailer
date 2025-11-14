@@ -15,10 +15,14 @@ import (
 )
 
 func main() {
-	handler := tailer.Handler("/", "/var/log/app.log")
+	handler := tailer.Handler(
+		"/",               // http path prefix to cut
+		"/var/log/syslog", // file to tail
+		tailer.WithPlugins(tailer.NewColoring("molokai")), // options
+	)
 
 	server := &http.Server{
-		Addr:    ":8080",
+		Addr:    "127.0.0.1:8080",
 		Handler: handler,
 	}
 

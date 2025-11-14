@@ -23,16 +23,15 @@ func Shutdown() {
 	close(shutdownCh)
 }
 
-func Handler(cutPrefix string, filepath string) http.Handler {
+func Handler(cutPrefix string, filepath string, opts ...Option) http.Handler {
 	return handler{
 		Filename:  filepath,
 		CutPrefix: cutPrefix,
 		fsServer:  http.FileServerFS(staticFS),
-		tailOpts: []Option{
+		tailOpts: append([]Option{
 			WithPollInterval(500 * time.Millisecond),
 			WithBufferSize(1000),
-			WithPlugins(NewColoring("default")),
-		},
+		}, opts...),
 	}
 }
 
