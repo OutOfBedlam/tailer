@@ -108,8 +108,8 @@ type TerminalOptions struct {
 	CursorBlink         bool          `json:"cursorBlink"`
 	CursorInactiveStyle string        `json:"cursorInactiveStyle,omitempty"`
 	CursorStyle         string        `json:"cursorStyle,omitempty"`
-	FontSize            int           `json:"fontSize"`
-	FontFamily          string        `json:"fontFamily"`
+	FontSize            int           `json:"fontSize,omitempty"`
+	FontFamily          string        `json:"fontFamily,omitempty"`
 	Theme               TerminalTheme `json:"theme"`
 	Scrollback          int           `json:"scrollback,omitempty"`
 	DisableStdin        bool          `json:"disableStdin"`
@@ -117,8 +117,30 @@ type TerminalOptions struct {
 }
 
 type TerminalTheme struct {
-	Background string `json:"background"`
-	Foreground string `json:"foreground"`
+	Background                  string `json:"background,omitempty"`
+	Foreground                  string `json:"foreground.omitempty"`
+	SelectionBackground         string `json:"selectionBackground,omitempty"`
+	SelectionForeground         string `json:"selectionForeground,omitempty"`
+	SelectionInactiveBackground string `json:"selectionInactiveBackground,omitempty"`
+	Cursor                      string `json:"cursor,omitempty"`
+	CursorAccent                string `json:"cursorAccent,omitempty"`
+	ExtendedAnsi                string `json:"extendedAnsi,omitempty"`
+	Black                       string `json:"black,omitempty"`
+	Blue                        string `json:"blue,omitempty"`
+	BrightBlack                 string `json:"brightBlack,omitempty"`
+	BrightBlue                  string `json:"brightBlue,omitempty"`
+	BrightCyan                  string `json:"brightCyan,omitempty"`
+	BrightGreen                 string `json:"brightGreen,omitempty"`
+	BrightMagenta               string `json:"brightMagenta,omitempty"`
+	BrightRed                   string `json:"brightRed,omitempty"`
+	BrightWhite                 string `json:"brightWhite,omitempty"`
+	BrightYellow                string `json:"brightYellow,omitempty"`
+	Cyan                        string `json:"cyan,omitempty"`
+	Green                       string `json:"green,omitempty"`
+	Magenta                     string `json:"magenta,omitempty"`
+	Red                         string `json:"red,omitempty"`
+	White                       string `json:"white,omitempty"`
+	Yellow                      string `json:"yellow,omitempty"`
 }
 
 func DefaultTerminalOptions() TerminalOptions {
