@@ -2,9 +2,11 @@ package tailer
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -13,6 +15,8 @@ type handler struct {
 	CutPrefix string
 	fsServer  http.Handler
 	tailOpts  []Option
+
+	TerminalOpts TerminalOptions
 }
 
 var shutdownCh = make(chan struct{})
@@ -32,6 +36,7 @@ func Handler(cutPrefix string, filepath string, opts ...Option) http.Handler {
 			WithPollInterval(500 * time.Millisecond),
 			WithBufferSize(1000),
 		}, opts...),
+		TerminalOpts: DefaultTerminalOptions(),
 	}
 }
 
@@ -97,10 +102,63 @@ func (h handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type TerminalOptions struct {
+	CursorBlink         bool          `json:"cursorBlink"`
+	CursorInactiveStyle string        `json:"cursorInactiveStyle,omitempty"`
+	CursorStyle         string        `json:"cursorStyle,omitempty"`
+	FontSize            int           `json:"fontSize"`
+	FontFamily          string        `json:"fontFamily"`
+	Theme               TerminalTheme `json:"theme"`
+	Scrollback          int           `json:"scrollback,omitempty"`
+	DisableStdin        bool          `json:"disableStdin"`
+	ConvertEol          bool          `json:"convertEol,omitempty"`
+}
+
+type TerminalTheme struct {
+	Background string `json:"background"`
+	Foreground string `json:"foreground"`
+}
+
+func DefaultTerminalOptions() TerminalOptions {
+	return TerminalOptions{
+		CursorBlink: false,
+		FontSize:    12,
+		FontFamily:  `"Monaspace Neon", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace`,
+		Theme: TerminalTheme{
+			Background: "#1e1e1e",
+			Foreground: "#ffffff",
+		},
+		Scrollback:   5000,
+		DisableStdin: true, // Terminal is read-only
+	}
+}
+
 //go:embed static/*
 var staticFS embed.FS
 
+var tmplIndex *template.Template
+
 func (h handler) serveStatic(w http.ResponseWriter, r *http.Request) {
+	if tmplIndex == nil {
+		if b, err := staticFS.ReadFile("static/index.html"); err != nil {
+			http.Error(w, "Failed to read index.html", http.StatusInternalServerError)
+			return
+		} else {
+			tmplIndex = template.Must(template.New("index").Parse(string(b)))
+		}
+	}
 	r.URL.Path = "static/" + strings.TrimPrefix(r.URL.Path, h.CutPrefix)
+	if r.URL.Path == "static/" {
+		opts, err := json.MarshalIndent(h.TerminalOpts, "", "  ")
+		if err == nil {
+			err = tmplIndex.Execute(w, map[string]any{
+				"TerminalOptions": string(opts),
+			})
+		}
+		if err != nil {
+			http.Error(w, "Failed to render index.html", http.StatusInternalServerError)
+		}
+		return
+	}
 	h.fsServer.ServeHTTP(w, r)
 }

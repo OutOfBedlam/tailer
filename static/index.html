@@ -124,17 +124,7 @@
 
     <script>
         // Create a new terminal instance
-        const term = new Terminal({
-            cursorBlink: false,  // No cursor needed for log viewer
-            fontSize: 14,        // Font size in pixels
-            fontFamily: '"Monaspace Neon", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace', // Monospace font
-            theme: {
-                background: '#1e1e1e',
-                foreground: '#ffffff'
-            },
-            scrollback: 5000,    // Keep last 5000 lines
-            disableStdin: true   // Read-only terminal
-        });
+        const term = new Terminal({{ .TerminalOptions }});
 
         // Create fit addon instance
         const fitAddon = new window.FitAddon.FitAddon();
