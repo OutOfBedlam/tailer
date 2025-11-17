@@ -27,7 +27,9 @@ func Shutdown() {
 	close(shutdownCh)
 }
 
-func Handler(cutPrefix string, filepath string, opts ...Option) http.Handler {
+var _ http.Handler = handler{}
+
+func NewHandler(cutPrefix string, filepath string, opts ...Option) http.Handler {
 	return handler{
 		Filename:  filepath,
 		CutPrefix: cutPrefix,
