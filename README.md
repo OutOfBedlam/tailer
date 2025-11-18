@@ -57,7 +57,7 @@ func main() {
 tail := tailer.New("/var/log/app.log",
     tailer.WithPollInterval(500*time.Millisecond),  // Check file every 500ms
     tailer.WithBufferSize(200),                     // Channel buffer size
-    tailer.WithLastN(20),                           // Show last 20 lines on start
+    tailer.WithLast(20),                           // Show last 20 lines on start
 )
 ```
 
@@ -103,7 +103,7 @@ import (
 func main() {
     tail := tailer.New("/var/log/app.log",
         tailer.WithPollInterval(100*time.Millisecond),
-        tailer.WithLastN(10),
+        tailer.WithLast(10),
         tailer.WithPattern("ERROR"),
     )
     
@@ -145,7 +145,7 @@ import (
 func main() {
     // Create handler for tailing /var/log/app.log
     // The first parameter is the URL prefix to strip
-    handler := tailer.Handler("/tail/", "/var/log/app.log")
+    handler := tailer.NewHandler("/tail/", "/var/log/app.log")
     
     // Mount the handler
     http.Handle("/tail/", handler)
@@ -175,13 +175,13 @@ func main() {
     mux := http.NewServeMux()
     
     // Tail application logs
-    mux.Handle("/logs/app/", tailer.Handler("/logs/app/", "/var/log/myapp.log"))
+    mux.Handle("/logs/app/", tailer.NewHandler("/logs/app/", "/var/log/myapp.log"))
     
     // Tail access logs
-    mux.Handle("/logs/access/", tailer.Handler("/logs/access/", "/var/log/access.log"))
+    mux.Handle("/logs/access/", tailer.NewHandler("/logs/access/", "/var/log/access.log"))
     
     // Tail error logs
-    mux.Handle("/logs/error/", tailer.Handler("/logs/error/", "/var/log/error.log"))
+    mux.Handle("/logs/error/", tailer.NewHandler("/logs/error/", "/var/log/error.log"))
     
     log.Println("Multi-log viewer starting on :8080")
     log.Println("Available endpoints:")
@@ -213,7 +213,7 @@ import (
 )
 
 func main() {
-    handler := tailer.Handler("/", "/var/log/app.log")
+    handler := tailer.NewHandler("/", "/var/log/app.log")
     
     server := &http.Server{
         Addr:    ":8080",
@@ -314,7 +314,7 @@ Stops tailing and closes the file. This method waits for the internal goroutine 
 
 Returns a read-only channel that outputs new lines from the file.
 
-#### `Handler(cutPrefix string, filepath string) http.Handler`
+#### `NewHandler(cutPrefix string, filepath string, opts...Option) tailer.Handler`
 
 Creates an HTTP handler that provides web-based log tailing using Server-Sent Events (SSE).
 
@@ -334,7 +334,7 @@ The handler automatically:
 
 **Example:**
 ```go
-handler := tailer.Handler("/logs/", "/var/log/app.log")
+handler := tailer.NewHandler("/logs/", "/var/log/app.log")
 http.Handle("/logs/", handler)
 ```
 
@@ -366,12 +366,12 @@ Sets the channel buffer size. Larger buffers can handle bursts of log lines bett
 tailer.WithBufferSize(200)
 ```
 
-#### `WithLastN(n int) Option`
+#### `WithLast(n int) Option`
 
 Sets how many lines from the end of the file to read when starting.
 
 ```go
-tailer.WithLastN(20)  // Read last 20 lines on start
+tailer.WithLast(20)  // Read last 20 lines on start
 ```
 
 #### `WithPattern(patterns ...string) Option`
@@ -393,35 +393,157 @@ tailer.New(filepath,
 
 Adds one or more plugins to process lines before they are sent to the output channel. Plugins can modify line content (e.g., add ANSI color codes) or drop lines entirely. Each plugin's `Apply(line string) (string, bool)` method is called in order - if it returns `false`, the line is dropped and no further plugins are executed.
 
-Built-in plugins:
-
-- **`NewColoring(style string)`**: Adds ANSI color codes to log levels (TRACE, DEBUG, INFO, WARN, ERROR)
-  - Supported styles: `"default"`, `"solarized"` (or `"solarized-dark"`), `"molokai"`, `"ubuntu"`
-  - Perfect for terminal display with xterm.js or other ANSI-compatible terminals
-
-```go
-// Apply Molokai color theme to log levels
-tail := tailer.New("/var/log/app.log",
-    tailer.WithPlugins(tailer.NewColoring("molokai")),
-)
-
-// Apply multiple plugins (processed in order)
-tail := tailer.New("/var/log/app.log",
-    tailer.WithPlugins(
-        myCustomPlugin,
-        tailer.NewColoring("solarized"),
-    ),
-)
-```
-
-Custom plugins can be created by implementing the `Plugin` interface:
-
 ```go
 type Plugin interface {
     // Apply processes a line and returns the modified line
     // and a boolean indicating if processing should continue
     // Return false to drop the line
     Apply(line string) (string, bool)
+}
+```
+
+#### `WithSyntaxColoring(syntax ...string) Option`
+
+Enable a syntax coloring that adds ANSI color codes to specific patterns in log lines. This is particularly useful for enhancing readability of structured logs in terminal displays.
+
+**Supported syntax styles:**
+
+- **`"level"`, `"levels"`**: Colorizes standard log levels
+  - `TRACE` - Dark gray
+  - `DEBUG` - Light gray  
+  - `INFO` - Green
+  - `WARN` - Yellow
+  - `ERROR` - Red
+
+- **`"slog"`**: Colorizes structured logging format (key=value pairs)
+  - Keys are displayed in cyan
+  - Values are displayed in blue
+  - Supports quoted strings and escaped characters
+
+**Examples:**
+
+```go
+// Colorize log levels only
+tail := tailer.New("/var/log/app.log",
+    tailer.WithSyntaxColoring("loglevel"),
+)
+
+// Colorize both log levels and slog key-value pairs
+tail := tailer.New("/var/log/app.log",
+    tailer.WithSyntaxColoring("loglevel", "slog"),
+)
+```
+
+### Terminal Themes
+
+When using the web-based terminal interface via `NewHandler()`, you can customize the terminal appearance using predefined color themes. The terminal uses xterm.js and supports full 16-color ANSI palettes.
+
+#### Available Themes
+
+- **`ThemeDefault`**: Standard dark theme with good contrast
+- **`ThemeSolarizedDark`**: Popular Solarized Dark color scheme  
+- **`ThemeSolarizedLight`**: Solarized Light for bright environments
+- **`ThemeMolokai`**: Vibrant Molokai editor theme
+- **`ThemeUbuntu`**: Ubuntu terminal's signature purple theme (default)
+
+#### Terminal Options
+
+The `TerminalOptions` struct allows fine-grained control over terminal behavior and appearance:
+
+```go
+type TerminalOptions struct {
+    CursorBlink         bool          // Enable/disable cursor blinking
+    CursorInactiveStyle string        // Cursor style when terminal is inactive
+    CursorStyle         string        // Cursor style: "block", "underline", "bar"
+    FontSize            int           // Terminal font size in pixels
+    FontFamily          string        // CSS font-family value
+    Theme               TerminalTheme // Color theme (see predefined themes)
+    Scrollback          int           // Number of lines to keep in scrollback buffer
+    DisableStdin        bool          // Disable keyboard input (read-only terminal)
+    ConvertEol          bool          // Convert line endings
+}
+```
+
+**Default terminal settings:**
+```go
+TerminalOptions{
+    CursorBlink:  false,
+    FontSize:     12,
+    FontFamily:   `"Monaspace Neon", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace`,
+    Theme:        ThemeUbuntu,
+    Scrollback:   5000,
+    DisableStdin: true, // Terminal is read-only for log viewing
+}
+```
+
+#### TerminalTheme Structure
+
+Each theme defines a complete 16-color ANSI palette plus UI colors:
+
+```go
+type TerminalTheme struct {
+    Background          string // Terminal background color
+    Foreground          string // Default text color
+    Cursor              string // Cursor color
+    CursorAccent        string // Cursor accent/border color
+    SelectionBackground string // Text selection background
+    
+    // Standard ANSI colors (0-7)
+    Black   string
+    Red     string
+    Green   string
+    Yellow  string
+    Blue    string
+    Magenta string
+    Cyan    string
+    White   string
+    
+    // Bright ANSI colors (8-15)
+    BrightBlack   string
+    BrightRed     string
+    BrightGreen   string
+    BrightYellow  string
+    BrightBlue    string
+    BrightMagenta string
+    BrightCyan    string
+    BrightWhite   string
+}
+```
+
+**Example - Solarized Dark theme:**
+```go
+var ThemeSolarizedDark = TerminalTheme{
+    Background:          "#002b36",
+    Foreground:          "#839496",
+    Cursor:              "#839496",
+    CursorAccent:        "#002b36",
+    SelectionBackground: "#073642",
+    Black:               "#073642",
+    Red:                 "#dc322f",
+    Green:               "#859900",
+    Yellow:              "#b58900",
+    Blue:                "#268bd2",
+    Magenta:             "#d33682",
+    Cyan:                "#2aa198",
+    White:               "#eee8d5",
+    // ... bright colors
+}
+```
+
+**Creating custom themes:**
+
+You can define your own themes by creating a `TerminalTheme` with custom colors:
+
+```go
+customTheme := tailer.TerminalTheme{
+    Background: "#1a1a1a",
+    Foreground: "#e0e0e0",
+    Cursor:     "#00ff00",
+    Red:        "#ff5555",
+    Green:      "#50fa7b",
+    Yellow:     "#f1fa8c",
+    Blue:       "#bd93f9",
+    // ... define all colors
 }
 ```
 

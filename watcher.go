@@ -10,13 +10,13 @@ import (
 	"time"
 )
 
-type handler struct {
+type Handler struct {
 	Filename  string
 	CutPrefix string
 	fsServer  http.Handler
 	tailOpts  []Option
 
-	TerminalOpts TerminalOptions
+	TerminalOption TerminalOption
 }
 
 var shutdownCh = make(chan struct{})
@@ -27,10 +27,10 @@ func Shutdown() {
 	close(shutdownCh)
 }
 
-var _ http.Handler = handler{}
+var _ http.Handler = Handler{}
 
-func NewHandler(cutPrefix string, filepath string, opts ...Option) http.Handler {
-	return handler{
+func (to TerminalOption) Handler(cutPrefix string, filepath string, opts ...Option) Handler {
+	return Handler{
 		Filename:  filepath,
 		CutPrefix: cutPrefix,
 		fsServer:  http.FileServerFS(staticFS),
@@ -38,11 +38,15 @@ func NewHandler(cutPrefix string, filepath string, opts ...Option) http.Handler 
 			WithPollInterval(500 * time.Millisecond),
 			WithBufferSize(1000),
 		}, opts...),
-		TerminalOpts: DefaultTerminalOptions(),
+		TerminalOption: to,
 	}
 }
 
-func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func NewHandler(cutPrefix string, filepath string, opts ...Option) Handler {
+	return DefaultTerminalOption().Handler(cutPrefix, filepath, opts...)
+}
+
+func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "watch.stream") {
 		h.serveWatcher(w, r)
 	} else {
@@ -50,7 +54,7 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
+func (h Handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 	if h.Filename == "" {
 		http.Error(w, "Filename not configured", http.StatusNotImplemented)
 		return
@@ -104,7 +108,7 @@ func (h handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type TerminalOptions struct {
+type TerminalOption struct {
 	CursorBlink         bool          `json:"cursorBlink"`
 	CursorInactiveStyle string        `json:"cursorInactiveStyle,omitempty"`
 	CursorStyle         string        `json:"cursorStyle,omitempty"`
@@ -143,15 +147,17 @@ type TerminalTheme struct {
 	Yellow                      string `json:"yellow,omitempty"`
 }
 
-func DefaultTerminalOptions() TerminalOptions {
-	return TerminalOptions{
-		CursorBlink: false,
-		FontSize:    12,
-		FontFamily:  `"Monaspace Neon", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace`,
-		Theme: TerminalTheme{
-			Background: "#1e1e1e",
-			Foreground: "#ffffff",
-		},
+func (tt TerminalOption) String() string {
+	opts, _ := json.MarshalIndent(tt, "", "  ")
+	return string(opts)
+}
+
+func DefaultTerminalOption() TerminalOption {
+	return TerminalOption{
+		CursorBlink:  false,
+		FontSize:     12,
+		FontFamily:   `"Monaspace Neon",ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace`,
+		Theme:        ThemeDefault,
 		Scrollback:   5000,
 		DisableStdin: true, // Terminal is read-only
 	}
@@ -162,7 +168,7 @@ var staticFS embed.FS
 
 var tmplIndex *template.Template
 
-func (h handler) serveStatic(w http.ResponseWriter, r *http.Request) {
+func (h Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 	if tmplIndex == nil {
 		if b, err := staticFS.ReadFile("static/index.html"); err != nil {
 			http.Error(w, "Failed to read index.html", http.StatusInternalServerError)
@@ -173,12 +179,9 @@ func (h handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 	}
 	r.URL.Path = "static/" + strings.TrimPrefix(r.URL.Path, h.CutPrefix)
 	if r.URL.Path == "static/" {
-		opts, err := json.MarshalIndent(h.TerminalOpts, "", "  ")
-		if err == nil {
-			err = tmplIndex.Execute(w, map[string]any{
-				"TerminalOptions": string(opts),
-			})
-		}
+		err := tmplIndex.Execute(w, map[string]any{
+			"TerminalOptions": h.TerminalOption,
+		})
 		if err != nil {
 			http.Error(w, "Failed to render index.html", http.StatusInternalServerError)
 		}
