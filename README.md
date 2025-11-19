@@ -8,8 +8,10 @@ A cross-platform Go library for tailing files, similar to the Unix `tail -F` com
 - 🔄 **Log rotation detection**: Automatically detects when files are rotated and follows the new file
 - ✂️ **Truncation handling**: Detects when files are truncated and starts from the beginning
 - 🔍 **Pattern filtering**: Filter lines using regular expressions (grep-like functionality)
+- 📂 **Multi-file tailing**: Tail multiple files simultaneously with `MultiTail`
 - 🌐 **Web interface**: Built-in HTTP handler with SSE (Server-Sent Events) for browser-based tailing
 - 🖥️ **Terminal UI**: Includes xterm.js-based web terminal with syntax highlighting
+- 🎨 **Customizable themes**: Multiple predefined color themes for web terminal
 - 🪟 **Cross-platform**: Works on Windows, Linux, macOS, and BSD systems
 - ⚡ **Efficient**: Uses polling with configurable intervals
 - 🎯 **Flexible**: Read last N lines before starting to tail
@@ -126,6 +128,53 @@ func main() {
 }
 ```
 
+### Multi-File Tailing
+
+You can tail multiple files simultaneously using `NewMultiTail()`. Each line will be prefixed with the file's alias for identification.
+
+```go
+package main
+
+import (
+    "fmt"
+    "time"
+    
+    "github.com/OutOfBedlam/tailer"
+)
+
+func main() {
+    // Create individual tails with custom aliases
+    tail1 := tailer.New("/var/log/app.log",
+        tailer.WithAlias("app"),
+        tailer.WithPattern("ERROR"),
+    )
+    
+    tail2 := tailer.New("/var/log/system.log",
+        tailer.WithAlias("system"),
+        tailer.WithPattern("WARN"),
+    )
+    
+    // Combine them into a MultiTail
+    multiTail := tailer.NewMultiTail(tail1, tail2)
+    
+    if err := multiTail.Start(); err != nil {
+        panic(err)
+    }
+    defer multiTail.Stop()
+    
+    // Lines are prefixed with aligned aliases
+    for line := range multiTail.Lines() {
+        fmt.Println(line)  // Output: "app    ERROR: something" or "system WARN: something"
+    }
+}
+```
+
+The `MultiTail` feature:
+- Automatically aligns alias prefixes for clean output
+- Merges lines from all tails into a single channel
+- Maintains individual tail configurations (filters, poll intervals, etc.)
+- Useful for monitoring multiple log files in one view
+
 ### Web-Based Tailing with SSE
 
 The package includes a built-in HTTP handler that provides real-time log tailing through Server-Sent Events (SSE) with a beautiful web terminal interface.
@@ -143,9 +192,14 @@ import (
 )
 
 func main() {
-    // Create handler for tailing /var/log/app.log
-    // The first parameter is the URL prefix to strip
-    handler := tailer.NewHandler("/tail/", "/var/log/app.log")
+    // Create a terminal with a tail configuration
+    terminal := tailer.NewTerminal(
+        tailer.WithTail("/var/log/app.log"),
+    )
+    defer terminal.Close()
+    
+    // Create handler from terminal
+    handler := terminal.Handler("/tail/")
     
     // Mount the handler
     http.Handle("/tail/", handler)
@@ -175,13 +229,25 @@ func main() {
     mux := http.NewServeMux()
     
     // Tail application logs
-    mux.Handle("/logs/app/", tailer.NewHandler("/logs/app/", "/var/log/myapp.log"))
+    appTerminal := tailer.NewTerminal(
+        tailer.WithTail("/var/log/myapp.log"),
+    )
+    defer appTerminal.Close()
+    mux.Handle("/logs/app/", appTerminal.Handler("/logs/app/"))
     
     // Tail access logs
-    mux.Handle("/logs/access/", tailer.NewHandler("/logs/access/", "/var/log/access.log"))
+    accessTerminal := tailer.NewTerminal(
+        tailer.WithTail("/var/log/access.log"),
+    )
+    defer accessTerminal.Close()
+    mux.Handle("/logs/access/", accessTerminal.Handler("/logs/access/"))
     
     // Tail error logs
-    mux.Handle("/logs/error/", tailer.NewHandler("/logs/error/", "/var/log/error.log"))
+    errorTerminal := tailer.NewTerminal(
+        tailer.WithTail("/var/log/error.log"),
+    )
+    defer errorTerminal.Close()
+    mux.Handle("/logs/error/", errorTerminal.Handler("/logs/error/"))
     
     log.Println("Multi-log viewer starting on :8080")
     log.Println("Available endpoints:")
@@ -213,11 +279,14 @@ import (
 )
 
 func main() {
-    handler := tailer.NewHandler("/", "/var/log/app.log")
+    terminal := tailer.NewTerminal(
+        tailer.WithTail("/var/log/app.log"),
+    )
+    defer terminal.Close()
     
     server := &http.Server{
         Addr:    ":8080",
-        Handler: handler,
+        Handler: terminal.Handler("/"),
     }
     
     // Start server in goroutine
@@ -235,9 +304,6 @@ func main() {
     
     log.Println("Shutting down server...")
     
-    // Signal all SSE connections to close
-    tailer.Shutdown()
-    
     // Gracefully shutdown HTTP server
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
     defer cancel()
@@ -254,11 +320,12 @@ func main() {
 
 The built-in web interface includes:
 - **xterm.js terminal**: Full-featured terminal emulator in the browser
-- **Syntax highlighting**: Automatic colorization of log levels (DEBUG, INFO, WARN, ERROR)
+- **Syntax highlighting**: Configurable colorization via `WithSyntaxColoring()` option
 - **Real-time updates**: Server-Sent Events (SSE) push new lines instantly
 - **Filter support**: Query parameter filtering with AND/OR logic
 - **Responsive design**: Works on desktop and mobile browsers
 - **Auto-scrolling**: Terminal automatically scrolls to show new content
+- **Multiple file support**: Tail multiple files simultaneously with `MultiTail`
 
 #### URL Filter Parameters
 
@@ -314,38 +381,69 @@ Stops tailing and closes the file. This method waits for the internal goroutine 
 
 Returns a read-only channel that outputs new lines from the file.
 
-#### `NewHandler(cutPrefix string, filepath string, opts...Option) tailer.Handler`
+#### `NewTerminal(opts ...TerminalOption) Terminal`
 
-Creates an HTTP handler that provides web-based log tailing using Server-Sent Events (SSE).
+Creates a new Terminal instance with customizable options for web-based log viewing.
+
+**Returns:** A `Terminal` that can be used to create HTTP handlers
+
+**Example:**
+```go
+terminal := tailer.NewTerminal(
+    tailer.WithTail("/var/log/app.log"),
+    tailer.WithFontSize(14),
+    tailer.WithTheme(tailer.ThemeUbuntu),
+)
+defer terminal.Close()
+```
+
+#### `(*Terminal) Handler(cutPrefix string) Handler`
+
+Creates an HTTP handler from the terminal configuration.
 
 **Parameters:**
-- `cutPrefix`: The URL prefix to strip from incoming requests (e.g., "/logs/app/")
-- `filepath`: The absolute path to the file to tail
+- `cutPrefix`: The URL prefix to strip from incoming requests (e.g., "/logs/")
 
 **Returns:** An `http.Handler` that serves:
 - A web interface at the base URL (using embedded xterm.js terminal)
 - An SSE stream at `{baseURL}/watch.stream` for real-time log updates
 
 The handler automatically:
-- Polls the file every 500ms for changes
+- Polls files every 500ms for changes
 - Uses a buffer size of 1000 lines
-- Colorizes log levels (DEBUG, INFO, WARN, ERROR)
 - Supports URL query parameter filtering via `?filter=`
 
 **Example:**
 ```go
-handler := tailer.NewHandler("/logs/", "/var/log/app.log")
+terminal := tailer.NewTerminal(tailer.WithTail("/var/log/app.log"))
+handler := terminal.Handler("/logs/")
 http.Handle("/logs/", handler)
 ```
 
-#### `Shutdown()`
+#### `(*Terminal) Close()`
 
-Signals all active SSE handlers to shut down gracefully. Call this before stopping your HTTP server to cleanly close all open connections.
+Stops any active watchers and signals all SSE connections to close. Call this during graceful shutdown.
 
 **Example:**
 ```go
-tailer.Shutdown()
-server.Shutdown(context.Background())
+terminal := tailer.NewTerminal(tailer.WithTail("/var/log/app.log"))
+defer terminal.Close()
+```
+
+#### `NewMultiTail(tails ...ITail) ITail`
+
+Creates a multi-file tailer that merges output from multiple tail instances.
+
+**Parameters:**
+- `tails`: Variable number of tail instances to combine
+
+**Returns:** An `ITail` interface that merges all tail outputs
+
+**Example:**
+```go
+multiTail := tailer.NewMultiTail(tail1, tail2, tail3)
+multiTail.Start()
+defer multiTail.Stop()
 ```
 
 ### Options
@@ -389,6 +487,18 @@ tailer.New(filepath,
 )
 ```
 
+#### `WithAlias(alias string) Option`
+
+Sets a custom alias for the tail instance. This is particularly useful with `MultiTail` to identify which file each line came from.
+
+```go
+tail := tailer.New("/var/log/application.log",
+    tailer.WithAlias("app"),
+)
+```
+
+When used with `MultiTail`, the alias is automatically prefixed to each line with proper alignment.
+
 #### `WithPlugins(plugins...Plugin) Option`
 
 Adds one or more plugins to process lines before they are sent to the output channel. Plugins can modify line content (e.g., add ANSI color codes) or drop lines entirely. Each plugin's `Apply(line string) (string, bool)` method is called in order - if it returns `false`, the line is dropped and no further plugins are executed.
@@ -404,49 +514,116 @@ type Plugin interface {
 
 #### `WithSyntaxColoring(syntax ...string) Option`
 
-Enable a syntax coloring that adds ANSI color codes to specific patterns in log lines. This is particularly useful for enhancing readability of structured logs in terminal displays.
+Enable syntax coloring that adds ANSI color codes to specific patterns in log lines. This is particularly useful for enhancing readability of structured logs in terminal displays.
 
 **Supported syntax styles:**
 
 - **`"level"`, `"levels"`**: Colorizes standard log levels
-  - `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`
+  - `TRACE` (dark gray), `DEBUG` (light gray), `INFO` (green), `WARN` (yellow), `ERROR` (red)
 
 - **`"slog-text"`**: Colorizes structured logging format (key=value pairs)
+  - Keys in cyan, values in blue
 
 - **`"slog-json"`**: Colorizes JSON logging format
+  - Keys in cyan, values in blue
+
+- **`"syslog"`**: Colorizes syslog format (`/var/log/syslog`)
+  - Timestamps in blue, hostnames in cyan, process names in yellow
 
 **Examples:**
 
 ```go
 // Colorize log levels only
 tail := tailer.New("/var/log/app.log",
-    tailer.WithSyntaxColoring("loglevel"),
+    tailer.WithSyntaxColoring("level"),
 )
 
 // Colorize both log levels and slog key-value pairs
 tail := tailer.New("/var/log/app.log",
-    tailer.WithSyntaxColoring("loglevel", "slog"),
+    tailer.WithSyntaxColoring("level", "slog-text"),
 )
+
+// Colorize syslog format
+tail := tailer.New("/var/log/syslog",
+    tailer.WithSyntaxColoring("syslog"),
+)
+```
+
+### Terminal Options
+
+When creating a Terminal for web-based viewing, you can customize its behavior and appearance:
+
+#### `WithTail(filename string, opts ...Option) TerminalOption`
+
+Adds a file to tail in the terminal. You can call this multiple times to tail multiple files.
+
+```go
+terminal := tailer.NewTerminal(
+    tailer.WithTail("/var/log/app.log", tailer.WithPattern("ERROR")),
+    tailer.WithTail("/var/log/system.log", tailer.WithPattern("WARN")),
+)
+```
+
+#### `WithFontSize(size int) TerminalOption`
+
+Sets the terminal font size in pixels.
+
+```go
+tailer.WithFontSize(14)
+```
+
+#### `WithFontFamily(family string) TerminalOption`
+
+Sets the terminal font family.
+
+```go
+tailer.WithFontFamily("Consolas, monospace")
+```
+
+#### `WithScrollback(lines int) TerminalOption`
+
+Sets the number of lines to keep in the scrollback buffer.
+
+```go
+tailer.WithScrollback(10000)
+```
+
+#### `WithTheme(theme TerminalTheme) TerminalOption`
+
+Applies a color theme to the terminal.
+
+```go
+tailer.WithTheme(tailer.ThemeUbuntu)
+```
+
+#### `WithTitle(title string) TerminalOption`
+
+Sets a custom title for the terminal page.
+
+```go
+tailer.WithTitle("Production Logs")
 ```
 
 ### Terminal Themes
 
-When using the web-based terminal interface via `NewHandler()`, you can customize the terminal appearance using predefined color themes. The terminal uses xterm.js and supports full 16-color ANSI palettes.
+When using the web-based terminal interface via `Terminal.Handler()`, you can customize the terminal appearance using predefined color themes. The terminal uses xterm.js and supports full 16-color ANSI palettes.
 
 #### Available Themes
 
-- **`ThemeDefault`**: Standard dark theme with good contrast
+- **`ThemeDefault`**: Standard dark theme with good contrast (default)
 - **`ThemeSolarizedDark`**: Popular Solarized Dark color scheme  
 - **`ThemeSolarizedLight`**: Solarized Light for bright environments
 - **`ThemeMolokai`**: Vibrant Molokai editor theme
-- **`ThemeUbuntu`**: Ubuntu terminal's signature purple theme (default)
+- **`ThemeUbuntu`**: Ubuntu terminal's signature purple theme
+- **`ThemeDracula`**: Popular Dracula color scheme
+- **`ThemeNordic`**: Nordic/Nord color scheme
 
-#### Terminal Options
+#### Terminal Structure
 
-The `TerminalOptions` struct allows fine-grained control over terminal behavior and appearance:
+The `Terminal` struct allows fine-grained control over terminal behavior and appearance:
 
 ```go
-type TerminalOptions struct {
+type Terminal struct {
     CursorBlink         bool          // Enable/disable cursor blinking
     CursorInactiveStyle string        // Cursor style when terminal is inactive
     CursorStyle         string        // Cursor style: "block", "underline", "bar"
@@ -461,11 +638,11 @@ type TerminalOptions struct {
 
 **Default terminal settings:**
 ```go
-TerminalOptions{
+Terminal{
     CursorBlink:  false,
     FontSize:     12,
-    FontFamily:   `"Monaspace Neon", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace`,
-    Theme:        ThemeUbuntu,
+    FontFamily:   `"Monaspace Neon",ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace`,
+    Theme:        ThemeDefault,
     Scrollback:   5000,
     DisableStdin: true, // Terminal is read-only for log viewing
 }
