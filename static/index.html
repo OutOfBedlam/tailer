@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Xterm.js Example</title>
+    <title>{{.Filename}}</title>
 
     <style>
         html, body {
@@ -18,7 +18,7 @@
         body {
             background-color: #0d1117;
             color: white;
-            font-family: {{.TerminalOption.FontFamily}};
+            font-family: {{.Terminal.FontFamily}};
             display: flex;
             justify-content: center;
             align-items: center;
@@ -91,7 +91,7 @@
             flex: 1;
             min-height: 0;
             padding: 8px;
-            background-color: {{.TerminalOption.Theme.Background}};
+            background-color: {{.Terminal.Theme.Background}};
             border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
             overflow: hidden;
@@ -131,7 +131,7 @@
 
     <script>
         // Create a new terminal instance
-        const term = new Terminal({{ .TerminalOptions }});
+        const term = new Terminal({{ .Terminal }});
 
         // Create fit addon instance
         const fitAddon = new window.FitAddon.FitAddon();

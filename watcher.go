@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -13,37 +14,26 @@ import (
 type Handler struct {
 	Filename  string
 	CutPrefix string
-	fsServer  http.Handler
-	tailOpts  []Option
+	Terminal  Terminal
 
-	TerminalOption TerminalOption
-}
-
-var shutdownCh = make(chan struct{})
-
-// Shutdown signals all SSE handlers to shut down
-// This will cause all active watchers to terminate gracefully.
-func Shutdown() {
-	close(shutdownCh)
+	fsServer http.Handler
+	closeCh  chan struct{}
 }
 
 var _ http.Handler = Handler{}
 
-func (to TerminalOption) Handler(cutPrefix string, filepath string, opts ...Option) Handler {
+func (to Terminal) Handler(cutPrefix string, filepath string) Handler {
 	return Handler{
 		Filename:  filepath,
 		CutPrefix: cutPrefix,
+		Terminal:  to,
 		fsServer:  http.FileServerFS(staticFS),
-		tailOpts: append([]Option{
-			WithPollInterval(500 * time.Millisecond),
-			WithBufferSize(1000),
-		}, opts...),
-		TerminalOption: to,
+		closeCh:   to.closeCh,
 	}
 }
 
-func NewHandler(cutPrefix string, filepath string, opts ...Option) Handler {
-	return DefaultTerminalOption().Handler(cutPrefix, filepath, opts...)
+func NewHandler(cutPrefix string, filepath string) Handler {
+	return DefaultTerminal().Handler(cutPrefix, filepath)
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +50,7 @@ func (h Handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts := append([]Option{}, h.tailOpts...)
+	opts := append([]Option{}, h.Terminal.tailOpts...)
 
 	filterParam := r.URL.Query().Get("filter")
 	filters := strings.Split(filterParam, "||")
@@ -102,13 +92,41 @@ func (h Handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "data: %s\n\n", line)
 		case <-r.Context().Done():
 			return
-		case <-shutdownCh:
+		case <-h.closeCh:
 			return
 		}
 	}
 }
 
-type TerminalOption struct {
+//go:embed static/*
+var staticFS embed.FS
+
+var tmplIndex *template.Template
+
+func (h Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
+	if tmplIndex == nil {
+		if b, err := staticFS.ReadFile("static/index.html"); err != nil {
+			http.Error(w, "Failed to read index.html", http.StatusInternalServerError)
+			return
+		} else {
+			tmplIndex = template.Must(template.New("index").Parse(string(b)))
+		}
+	}
+	r.URL.Path = "static/" + strings.TrimPrefix(r.URL.Path, h.CutPrefix)
+	if r.URL.Path == "static/" {
+		err := tmplIndex.Execute(w, map[string]any{
+			"Terminal": h.Terminal,
+			"Filename": filepath.Base(h.Filename),
+		})
+		if err != nil {
+			http.Error(w, "Failed to render index.html", http.StatusInternalServerError)
+		}
+		return
+	}
+	h.fsServer.ServeHTTP(w, r)
+}
+
+type Terminal struct {
 	CursorBlink         bool          `json:"cursorBlink"`
 	CursorInactiveStyle string        `json:"cursorInactiveStyle,omitempty"`
 	CursorStyle         string        `json:"cursorStyle,omitempty"`
@@ -118,6 +136,8 @@ type TerminalOption struct {
 	Scrollback          int           `json:"scrollback,omitempty"`
 	DisableStdin        bool          `json:"disableStdin"`
 	ConvertEol          bool          `json:"convertEol,omitempty"`
+	tailOpts            []Option      `json:"-"`
+	closeCh             chan struct{} `json:"-"`
 }
 
 type TerminalTheme struct {
@@ -147,45 +167,71 @@ type TerminalTheme struct {
 	Yellow                      string `json:"yellow,omitempty"`
 }
 
-func (tt TerminalOption) String() string {
+func (tt Terminal) String() string {
 	opts, _ := json.MarshalIndent(tt, "", "  ")
 	return string(opts)
 }
 
-func DefaultTerminalOption() TerminalOption {
-	return TerminalOption{
+type TerminalOption func(*Terminal)
+
+func WithFontSize(size int) TerminalOption {
+	return func(to *Terminal) {
+		to.FontSize = size
+	}
+}
+
+func WithFontFamily(family string) TerminalOption {
+	return func(to *Terminal) {
+		to.FontFamily = family
+	}
+}
+
+func WithScrollback(lines int) TerminalOption {
+	return func(to *Terminal) {
+		to.Scrollback = lines
+	}
+}
+
+func WithTheme(theme TerminalTheme) TerminalOption {
+	return func(to *Terminal) {
+		to.Theme = theme
+	}
+}
+
+func WithTailOptions(opts ...Option) TerminalOption {
+	return func(to *Terminal) {
+		to.tailOpts = append(to.tailOpts, opts...)
+	}
+}
+
+func NewTerminal(opts ...TerminalOption) Terminal {
+	to := DefaultTerminal()
+	for _, opt := range opts {
+		opt(&to)
+	}
+	return to
+}
+
+func DefaultTerminal() Terminal {
+	return Terminal{
 		CursorBlink:  false,
 		FontSize:     12,
 		FontFamily:   `"Monaspace Neon",ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace`,
 		Theme:        ThemeDefault,
 		Scrollback:   5000,
 		DisableStdin: true, // Terminal is read-only
+		tailOpts: []Option{
+			WithPollInterval(500 * time.Millisecond),
+			WithBufferSize(1000),
+		},
+		closeCh: make(chan struct{}),
 	}
 }
 
-//go:embed static/*
-var staticFS embed.FS
-
-var tmplIndex *template.Template
-
-func (h Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
-	if tmplIndex == nil {
-		if b, err := staticFS.ReadFile("static/index.html"); err != nil {
-			http.Error(w, "Failed to read index.html", http.StatusInternalServerError)
-			return
-		} else {
-			tmplIndex = template.Must(template.New("index").Parse(string(b)))
-		}
-	}
-	r.URL.Path = "static/" + strings.TrimPrefix(r.URL.Path, h.CutPrefix)
-	if r.URL.Path == "static/" {
-		err := tmplIndex.Execute(w, map[string]any{
-			"TerminalOptions": h.TerminalOption,
-		})
-		if err != nil {
-			http.Error(w, "Failed to render index.html", http.StatusInternalServerError)
-		}
-		return
-	}
-	h.fsServer.ServeHTTP(w, r)
+// Close stops any active watchers associated with the terminal
+// and explicitly stop sse sessions.
+// the http server might be blocked on Shutdown()
+// if there are active watchers.
+func (t Terminal) Close() {
+	close(t.closeCh)
 }

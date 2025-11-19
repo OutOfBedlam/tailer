@@ -43,7 +43,7 @@ func (c syntaxColoring) Apply(line string) (string, bool) {
 			line = strings.ReplaceAll(line, "INFO", colorGreen+"INFO"+colorReset)
 			line = strings.ReplaceAll(line, "WARN", colorYellow+"WARN"+colorReset)
 			line = strings.ReplaceAll(line, "ERROR", colorRed+"ERROR"+colorReset)
-		case "slog":
+		case "slog-text":
 			// Color name=value patterns in slog format
 			line = slogKeyValuePattern.ReplaceAllStringFunc(line, func(match string) string {
 				parts := strings.SplitN(match, "=", 2)
@@ -51,6 +51,17 @@ func (c syntaxColoring) Apply(line string) (string, bool) {
 					key := parts[0]
 					value := parts[1]
 					return colorCyan + key + colorReset + "=" + colorBlue + value + colorReset
+				}
+				return match
+			})
+		case "slog-json":
+			// Color JSON key:value patterns in slog format
+			line = regexp.MustCompile(`"(\w+)":\s*("(?:[^"\\]|\\.)*"|[^\s,}]+)`).ReplaceAllStringFunc(line, func(match string) string {
+				parts := strings.SplitN(match, ":", 2)
+				if len(parts) == 2 {
+					key := strings.TrimSpace(parts[0])
+					value := strings.TrimSpace(parts[1])
+					return colorCyan + key + colorReset + ":" + colorBlue + value + colorReset
 				}
 				return match
 			})

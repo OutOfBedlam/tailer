@@ -409,16 +409,11 @@ Enable a syntax coloring that adds ANSI color codes to specific patterns in log 
 **Supported syntax styles:**
 
 - **`"level"`, `"levels"`**: Colorizes standard log levels
-  - `TRACE` - Dark gray
-  - `DEBUG` - Light gray  
-  - `INFO` - Green
-  - `WARN` - Yellow
-  - `ERROR` - Red
+  - `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`
 
-- **`"slog"`**: Colorizes structured logging format (key=value pairs)
-  - Keys are displayed in cyan
-  - Values are displayed in blue
-  - Supports quoted strings and escaped characters
+- **`"slog-text"`**: Colorizes structured logging format (key=value pairs)
+
+- **`"slog-json"`**: Colorizes JSON logging format
 
 **Examples:**
 
