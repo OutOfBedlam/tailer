@@ -40,11 +40,16 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h Handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 	selectedTails := map[string][]Option{}
-	fileParams := r.URL.Query()["file"]
-	for _, f := range fileParams {
-		for _, to := range h.Terminal.tails {
-			if to.Alias == f {
-				selectedTails[to.Filename] = to.Options
+	if len(h.Terminal.tails) == 1 {
+		to := h.Terminal.tails[0]
+		selectedTails[to.Filename] = to.Options
+	} else {
+		fileParams := r.URL.Query()["file"]
+		for _, f := range fileParams {
+			for _, to := range h.Terminal.tails {
+				if to.Alias == f {
+					selectedTails[to.Filename] = to.Options
+				}
 			}
 		}
 	}
@@ -241,11 +246,15 @@ func WithTitle(title string) TerminalOption {
 }
 
 func WithTail(filename string, opts ...Option) TerminalOption {
+	return WithTailAlias(filepath.Base(filename), filename, opts...)
+}
+
+func WithTailAlias(alias string, filename string, opts ...Option) TerminalOption {
 	return func(to *Terminal) {
 		to.tails = append(to.tails, TailOption{
 			Filename: filename,
-			Options:  opts,
-			Alias:    filepath.Base(filename),
+			Options:  append([]Option{WithAlias(alias)}, opts...),
+			Alias:    alias,
 		})
 	}
 }
