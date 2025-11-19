@@ -37,7 +37,7 @@ func (c syntaxColoring) Apply(line string) (string, bool) {
 	// Default Keywords
 	for _, syntax := range c {
 		switch strings.ToLower(syntax) {
-		case "loglevel", "loglevels", "level", "levels":
+		case "level", "levels":
 			line = strings.ReplaceAll(line, "TRACE", colorDarkGray+"TRACE"+colorReset)
 			line = strings.ReplaceAll(line, "DEBUG", colorLightGray+"DEBUG"+colorReset)
 			line = strings.ReplaceAll(line, "INFO", colorGreen+"INFO"+colorReset)
@@ -65,6 +65,23 @@ func (c syntaxColoring) Apply(line string) (string, bool) {
 				}
 				return match
 			})
+		case "syslog":
+			// /var/log/syslog specific coloring
+			// Pattern: timestamp hostname process[pid]: message
+			syslogPattern := regexp.MustCompile(`^(\S+)\s+(\S+)\s+([^\s:]+(?:\[\d+\])?):(.*)$`)
+			line = syslogPattern.ReplaceAllStringFunc(line, func(match string) string {
+				matches := syslogPattern.FindStringSubmatch(match)
+				if len(matches) == 5 {
+					timestamp := colorBlue + matches[1] + colorReset
+					hostname := colorCyan + matches[2] + colorReset
+					process := colorYellow + matches[3] + colorReset
+					message := matches[4]
+					return timestamp + " " + hostname + " " + process + ":" + message
+				}
+				return match
+			})
+			// syslog file encodes ESC as #033[
+			line = strings.ReplaceAll(line, "#033[", "\033[")
 		}
 	}
 	return line, true

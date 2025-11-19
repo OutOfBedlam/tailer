@@ -4,16 +4,97 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
+
+type ITail interface {
+	Start() error
+	Stop() error
+	Lines() <-chan string
+}
+
+var _ ITail = (*Tail)(nil)
+var _ ITail = (*MultiTail)(nil)
+
+// MultiTail allows tailing multiple files and merging their output
+type MultiTail struct {
+	tails []ITail
+	wg    sync.WaitGroup
+	c     chan string
+}
+
+func NewMultiTail(tails ...ITail) ITail {
+	buff := len(tails) * 100
+	for _, tail := range tails {
+		if t, ok := tail.(*Tail); ok && buff < t.bufferSize {
+			buff = t.bufferSize
+		}
+	}
+	mt := &MultiTail{
+		tails: tails,
+		c:     make(chan string, buff),
+	}
+	return mt
+}
+
+func (mt *MultiTail) Start() error {
+	aliasWidth := 0
+	for _, tail := range mt.tails {
+		if err := tail.Start(); err != nil {
+			return fmt.Errorf("failed to start tail for %w", err)
+		}
+		if t, ok := tail.(*Tail); ok {
+			if l := len(t.alias); l > aliasWidth {
+				aliasWidth = l
+			}
+		}
+	}
+
+	for _, tail := range mt.tails {
+		mt.wg.Add(1)
+		go func(t ITail) {
+			defer mt.wg.Done()
+			alias := ""
+			if tt, ok := t.(*Tail); ok {
+				alias = tt.alias
+			}
+			alias = alias + strings.Repeat(" ", aliasWidth-len(alias))
+			for line := range t.Lines() {
+				mt.c <- alias + " " + line
+			}
+		}(tail)
+	}
+
+	return nil
+}
+
+func (mt *MultiTail) Stop() error {
+	var firstErr error
+	for _, tail := range mt.tails {
+		if err := tail.Stop(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	mt.wg.Wait()
+	defer close(mt.c)
+
+	return firstErr
+}
+
+func (mt *MultiTail) Lines() <-chan string {
+	return mt.c
+}
 
 // Tail provides functionality to tail a file
 // it works similar to 'tail -F' command in unix,
 // which follows the file even if it is rotated
 type Tail struct {
 	filepath     string
+	alias        string
 	c            chan string
 	stopChan     chan struct{}
 	pollInterval time.Duration
@@ -76,6 +157,12 @@ func WithLast(n int) Option {
 	}
 }
 
+func WithAlias(alias string) Option {
+	return func(t *Tail) {
+		t.alias = alias
+	}
+}
+
 func WithSyntaxColoring(syntax ...string) Option {
 	return func(t *Tail) {
 		t.plugins = append(t.plugins, NewSyntaxColoring(syntax...))
@@ -89,9 +176,10 @@ func WithPlugins(p ...Plugin) Option {
 }
 
 // New creates Tail instance
-func New(filepath string, opts ...Option) *Tail {
+func New(filename string, opts ...Option) ITail {
 	t := &Tail{
-		filepath:     filepath,
+		filepath:     filename,
+		alias:        filepath.Base(filename),
 		bufferSize:   100,
 		stopChan:     make(chan struct{}),
 		pollInterval: 1 * time.Second,

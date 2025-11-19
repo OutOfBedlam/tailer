@@ -12,7 +12,6 @@ import (
 )
 
 type Handler struct {
-	Filename  string
 	CutPrefix string
 	Terminal  Terminal
 
@@ -22,18 +21,13 @@ type Handler struct {
 
 var _ http.Handler = Handler{}
 
-func (to Terminal) Handler(cutPrefix string, filepath string) Handler {
+func (to Terminal) Handler(cutPrefix string) Handler {
 	return Handler{
-		Filename:  filepath,
 		CutPrefix: cutPrefix,
 		Terminal:  to,
 		fsServer:  http.FileServerFS(staticFS),
 		closeCh:   to.closeCh,
 	}
-}
-
-func NewHandler(cutPrefix string, filepath string) Handler {
-	return DefaultTerminal().Handler(cutPrefix, filepath)
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -45,12 +39,15 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
-	if h.Filename == "" {
-		http.Error(w, "Filename not configured", http.StatusNotImplemented)
+	if len(h.Terminal.tails) == 0 {
+		http.Error(w, "no tails configured", http.StatusBadRequest)
 		return
 	}
 
-	opts := append([]Option{}, h.Terminal.tailOpts...)
+	opts := []Option{
+		WithPollInterval(500 * time.Millisecond),
+		WithBufferSize(1000),
+	}
 
 	filterParam := r.URL.Query().Get("filter")
 	filters := strings.Split(filterParam, "||")
@@ -68,7 +65,19 @@ func (h Handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tail := New(h.Filename, opts...)
+	var tail ITail
+	if len(h.Terminal.tails) == 0 {
+		for filename, opts := range h.Terminal.tails {
+			tail = New(filename, opts...)
+		}
+	} else {
+		var tails []ITail
+		for filename, tailOpts := range h.Terminal.tails {
+			t := New(filename, append(tailOpts, opts...)...)
+			tails = append(tails, t)
+		}
+		tail = NewMultiTail(tails...)
+	}
 	if err := tail.Start(); err != nil {
 		http.Error(w, "Failed to start watcher", http.StatusInternalServerError)
 		return
@@ -112,11 +121,20 @@ func (h Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 			tmplIndex = template.Must(template.New("index").Parse(string(b)))
 		}
 	}
+
+	if h.Terminal.Title == "" {
+		title := []string{}
+		for p := range h.Terminal.tails {
+			title = append(title, filepath.Base(p))
+		}
+		h.Terminal.Title = strings.Join(title, ", ")
+	}
+
 	r.URL.Path = "static/" + strings.TrimPrefix(r.URL.Path, h.CutPrefix)
 	if r.URL.Path == "static/" {
 		err := tmplIndex.Execute(w, map[string]any{
 			"Terminal": h.Terminal,
-			"Filename": filepath.Base(h.Filename),
+			"Title":    h.Terminal.Title,
 		})
 		if err != nil {
 			http.Error(w, "Failed to render index.html", http.StatusInternalServerError)
@@ -127,17 +145,18 @@ func (h Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 type Terminal struct {
-	CursorBlink         bool          `json:"cursorBlink"`
-	CursorInactiveStyle string        `json:"cursorInactiveStyle,omitempty"`
-	CursorStyle         string        `json:"cursorStyle,omitempty"`
-	FontSize            int           `json:"fontSize,omitempty"`
-	FontFamily          string        `json:"fontFamily,omitempty"`
-	Theme               TerminalTheme `json:"theme"`
-	Scrollback          int           `json:"scrollback,omitempty"`
-	DisableStdin        bool          `json:"disableStdin"`
-	ConvertEol          bool          `json:"convertEol,omitempty"`
-	tailOpts            []Option      `json:"-"`
-	closeCh             chan struct{} `json:"-"`
+	CursorBlink         bool                `json:"cursorBlink"`
+	CursorInactiveStyle string              `json:"cursorInactiveStyle,omitempty"`
+	CursorStyle         string              `json:"cursorStyle,omitempty"`
+	FontSize            int                 `json:"fontSize,omitempty"`
+	FontFamily          string              `json:"fontFamily,omitempty"`
+	Theme               TerminalTheme       `json:"theme"`
+	Scrollback          int                 `json:"scrollback,omitempty"`
+	DisableStdin        bool                `json:"disableStdin"`
+	ConvertEol          bool                `json:"convertEol,omitempty"`
+	tails               map[string][]Option `json:"-"`
+	closeCh             chan struct{}       `json:"-"`
+	Title               string              `json:"-"`
 }
 
 type TerminalTheme struct {
@@ -198,9 +217,15 @@ func WithTheme(theme TerminalTheme) TerminalOption {
 	}
 }
 
-func WithTailOptions(opts ...Option) TerminalOption {
+func WithTitle(title string) TerminalOption {
 	return func(to *Terminal) {
-		to.tailOpts = append(to.tailOpts, opts...)
+		to.Title = title
+	}
+}
+
+func WithTail(filename string, opts ...Option) TerminalOption {
+	return func(to *Terminal) {
+		to.tails[filename] = opts
 	}
 }
 
@@ -220,11 +245,8 @@ func DefaultTerminal() Terminal {
 		Theme:        ThemeDefault,
 		Scrollback:   5000,
 		DisableStdin: true, // Terminal is read-only
-		tailOpts: []Option{
-			WithPollInterval(500 * time.Millisecond),
-			WithBufferSize(1000),
-		},
-		closeCh: make(chan struct{}),
+		tails:        make(map[string][]Option),
+		closeCh:      make(chan struct{}),
 	}
 }
 

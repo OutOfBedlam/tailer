@@ -15,15 +15,15 @@ import (
 )
 
 func main() {
-	handler := tailer.Handler(
-		"/",               // http path prefix to cut
-		"/var/log/syslog", // file to tail
-		tailer.WithPlugins(tailer.NewColoring("molokai")), // options
+	terminal := tailer.NewTerminal(
+		tailer.WithFontSize(12),
+		tailer.WithTheme(tailer.ThemeUbuntu),
+		tailer.WithTail("/var/log/syslog", tailer.WithSyntaxColoring("syslog")),
 	)
-
+	defer terminal.Close()
 	server := &http.Server{
 		Addr:    "127.0.0.1:8080",
-		Handler: handler,
+		Handler: terminal.Handler("/"),
 	}
 
 	// Start server in goroutine
@@ -40,9 +40,6 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down server...")
-
-	// Signal all SSE connections to close
-	tailer.Shutdown()
 
 	// Gracefully shutdown HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
