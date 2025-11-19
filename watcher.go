@@ -39,8 +39,18 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
-	if len(h.Terminal.tails) == 0 {
-		http.Error(w, "no tails configured", http.StatusBadRequest)
+	selectedTails := map[string][]Option{}
+	fileParams := r.URL.Query()["file"]
+	for _, f := range fileParams {
+		for path, opts := range h.Terminal.tails {
+			if filepath.Base(path) == f {
+				selectedTails[path] = opts
+			}
+		}
+	}
+
+	if len(selectedTails) == 0 {
+		http.Error(w, "no logs selected", http.StatusBadRequest)
 		return
 	}
 
@@ -66,13 +76,13 @@ func (h Handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var tail ITail
-	if len(h.Terminal.tails) == 0 {
-		for filename, opts := range h.Terminal.tails {
+	if len(selectedTails) == 1 {
+		for filename, opts := range selectedTails {
 			tail = New(filename, opts...)
 		}
 	} else {
 		var tails []ITail
-		for filename, tailOpts := range h.Terminal.tails {
+		for filename, tailOpts := range selectedTails {
 			t := New(filename, append(tailOpts, opts...)...)
 			tails = append(tails, t)
 		}
@@ -132,9 +142,14 @@ func (h Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 
 	r.URL.Path = "static/" + strings.TrimPrefix(r.URL.Path, h.CutPrefix)
 	if r.URL.Path == "static/" {
+		files := []string{}
+		for t := range h.Terminal.tails {
+			files = append(files, filepath.Base(t))
+		}
 		err := tmplIndex.Execute(w, map[string]any{
 			"Terminal": h.Terminal,
 			"Title":    h.Terminal.Title,
+			"Files":    files,
 		})
 		if err != nil {
 			http.Error(w, "Failed to render index.html", http.StatusInternalServerError)
