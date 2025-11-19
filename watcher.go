@@ -42,9 +42,9 @@ func (h Handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
 	selectedTails := map[string][]Option{}
 	fileParams := r.URL.Query()["file"]
 	for _, f := range fileParams {
-		for path, opts := range h.Terminal.tails {
-			if filepath.Base(path) == f {
-				selectedTails[path] = opts
+		for _, to := range h.Terminal.tails {
+			if to.Alias == f {
+				selectedTails[to.Filename] = to.Options
 			}
 		}
 	}
@@ -133,18 +133,14 @@ func (h Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.Terminal.Title == "" {
-		title := []string{}
-		for p := range h.Terminal.tails {
-			title = append(title, filepath.Base(p))
-		}
-		h.Terminal.Title = strings.Join(title, ", ")
+		h.Terminal.Title = "Tailer"
 	}
 
 	r.URL.Path = "static/" + strings.TrimPrefix(r.URL.Path, h.CutPrefix)
 	if r.URL.Path == "static/" {
 		files := []string{}
-		for t := range h.Terminal.tails {
-			files = append(files, filepath.Base(t))
+		for _, to := range h.Terminal.tails {
+			files = append(files, to.Alias)
 		}
 		err := tmplIndex.Execute(w, map[string]any{
 			"Terminal": h.Terminal,
@@ -160,18 +156,24 @@ func (h Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 type Terminal struct {
-	CursorBlink         bool                `json:"cursorBlink"`
-	CursorInactiveStyle string              `json:"cursorInactiveStyle,omitempty"`
-	CursorStyle         string              `json:"cursorStyle,omitempty"`
-	FontSize            int                 `json:"fontSize,omitempty"`
-	FontFamily          string              `json:"fontFamily,omitempty"`
-	Theme               TerminalTheme       `json:"theme"`
-	Scrollback          int                 `json:"scrollback,omitempty"`
-	DisableStdin        bool                `json:"disableStdin"`
-	ConvertEol          bool                `json:"convertEol,omitempty"`
-	tails               map[string][]Option `json:"-"`
-	closeCh             chan struct{}       `json:"-"`
-	Title               string              `json:"-"`
+	CursorBlink         bool          `json:"cursorBlink"`
+	CursorInactiveStyle string        `json:"cursorInactiveStyle,omitempty"`
+	CursorStyle         string        `json:"cursorStyle,omitempty"`
+	FontSize            int           `json:"fontSize,omitempty"`
+	FontFamily          string        `json:"fontFamily,omitempty"`
+	Theme               TerminalTheme `json:"theme"`
+	Scrollback          int           `json:"scrollback,omitempty"`
+	DisableStdin        bool          `json:"disableStdin"`
+	ConvertEol          bool          `json:"convertEol,omitempty"`
+	tails               []TailOption  `json:"-"`
+	closeCh             chan struct{} `json:"-"`
+	Title               string        `json:"-"`
+}
+
+type TailOption struct {
+	Filename string   `json:"filename"`
+	Options  []Option `json:"options"`
+	Alias    string   `json:"alias,omitempty"`
 }
 
 type TerminalTheme struct {
@@ -240,7 +242,11 @@ func WithTitle(title string) TerminalOption {
 
 func WithTail(filename string, opts ...Option) TerminalOption {
 	return func(to *Terminal) {
-		to.tails[filename] = opts
+		to.tails = append(to.tails, TailOption{
+			Filename: filename,
+			Options:  opts,
+			Alias:    filepath.Base(filename),
+		})
 	}
 }
 
@@ -260,7 +266,6 @@ func DefaultTerminal() Terminal {
 		Theme:        ThemeDefault,
 		Scrollback:   5000,
 		DisableStdin: true, // Terminal is read-only
-		tails:        make(map[string][]Option),
 		closeCh:      make(chan struct{}),
 	}
 }
