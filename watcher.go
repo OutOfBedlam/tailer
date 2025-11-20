@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -39,17 +40,16 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handler) serveWatcher(w http.ResponseWriter, r *http.Request) {
+	// TODO: use array instead of map to keep order
 	selectedTails := map[string][]Option{}
 	if len(h.Terminal.tails) == 1 {
 		to := h.Terminal.tails[0]
 		selectedTails[to.Filename] = to.Options
 	} else {
 		fileParams := r.URL.Query()["file"]
-		for _, f := range fileParams {
-			for _, to := range h.Terminal.tails {
-				if to.Alias == f {
-					selectedTails[to.Filename] = to.Options
-				}
+		for _, to := range h.Terminal.tails {
+			if slices.Contains(fileParams, to.Alias) {
+				selectedTails[to.Filename] = to.Options
 			}
 		}
 	}
@@ -136,28 +136,38 @@ func (h Handler) serveStatic(w http.ResponseWriter, r *http.Request) {
 			tmplIndex = template.Must(template.New("index").Parse(string(b)))
 		}
 	}
-
-	if h.Terminal.Title == "" {
-		h.Terminal.Title = "Tailer"
-	}
-
 	r.URL.Path = "static/" + strings.TrimPrefix(r.URL.Path, h.CutPrefix)
 	if r.URL.Path == "static/" {
-		files := []string{}
-		for _, to := range h.Terminal.tails {
-			files = append(files, to.Alias)
-		}
-		err := tmplIndex.Execute(w, map[string]any{
-			"Terminal": h.Terminal,
-			"Title":    h.Terminal.Title,
-			"Files":    files,
-		})
+		err := tmplIndex.Execute(w, h.dataMap())
 		if err != nil {
 			http.Error(w, "Failed to render index.html", http.StatusInternalServerError)
 		}
 		return
 	}
 	h.fsServer.ServeHTTP(w, r)
+}
+
+func (h Handler) dataMap() TemplateData {
+	files := []string{}
+	for _, to := range h.Terminal.tails {
+		files = append(files, to.Alias)
+	}
+	return TemplateData{
+		Terminal: h.Terminal,
+		Files:    files,
+	}
+}
+
+type TemplateData struct {
+	Terminal Terminal
+	Files    []string
+}
+
+func (td TemplateData) Localize(s string) string {
+	if l, ok := td.Terminal.Localization[s]; ok {
+		return l
+	}
+	return s
 }
 
 type Terminal struct {
@@ -170,15 +180,17 @@ type Terminal struct {
 	Scrollback          int           `json:"scrollback,omitempty"`
 	DisableStdin        bool          `json:"disableStdin"`
 	ConvertEol          bool          `json:"convertEol,omitempty"`
-	tails               []TailOption  `json:"-"`
-	closeCh             chan struct{} `json:"-"`
-	Title               string        `json:"-"`
+
+	tails        []TailOption      `json:"-"`
+	closeCh      chan struct{}     `json:"-"`
+	Localization map[string]string `json:"-"`
 }
 
 type TailOption struct {
 	Filename string   `json:"filename"`
 	Options  []Option `json:"options"`
-	Alias    string   `json:"alias,omitempty"`
+	Alias    string   `json:"alias"`
+	Label    string   `json:"label"`
 }
 
 type TerminalTheme struct {
@@ -239,21 +251,23 @@ func WithTheme(theme TerminalTheme) TerminalOption {
 	}
 }
 
-func WithTitle(title string) TerminalOption {
+func WithLocalization(localization map[string]string) TerminalOption {
 	return func(to *Terminal) {
-		to.Title = title
+		to.Localization = localization
 	}
 }
 
 func WithTail(filename string, opts ...Option) TerminalOption {
-	return WithTailAlias(filepath.Base(filename), filename, opts...)
+	return WithTailLabel(filepath.Base(filename), filename, opts...)
 }
 
-func WithTailAlias(alias string, filename string, opts ...Option) TerminalOption {
+func WithTailLabel(label string, filename string, opts ...Option) TerminalOption {
 	return func(to *Terminal) {
+		alias := StripAnsiCodes(label)
 		to.tails = append(to.tails, TailOption{
 			Filename: filename,
-			Options:  append([]Option{WithAlias(alias)}, opts...),
+			Options:  append([]Option{WithLabel(label)}, opts...),
+			Label:    label,
 			Alias:    alias,
 		})
 	}
@@ -276,6 +290,7 @@ func DefaultTerminal() Terminal {
 		Scrollback:   5000,
 		DisableStdin: true, // Terminal is read-only
 		closeCh:      make(chan struct{}),
+		Localization: map[string]string{},
 	}
 }
 

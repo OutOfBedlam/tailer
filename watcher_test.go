@@ -14,7 +14,6 @@ import (
 // TestHandler_ServeHTTP tests the main routing logic
 func TestHandler_ServeHTTP(t *testing.T) {
 	terminal := NewTerminal(
-		WithTitle("Test Terminal"),
 		WithTail(createTestFile(t, "test1.log", "line1\n")),
 	)
 	defer terminal.Close()
@@ -92,7 +91,6 @@ func TestHandler_serveWatcher_SingleFile(t *testing.T) {
 	tmpFile := createTestFile(t, "single.log", "initial line\n")
 
 	terminal := NewTerminal(
-		WithTitle("Single File Test"),
 		WithTail(tmpFile, WithPollInterval(100*time.Millisecond)),
 	)
 	defer terminal.Close()
@@ -144,9 +142,8 @@ func TestHandler_serveWatcher_MultipleFiles(t *testing.T) {
 	tmpFile2 := createTestFile(t, "multi2.log", "")
 
 	terminal := NewTerminal(
-		WithTitle("Multi File Test"),
-		WithTailAlias("file1", tmpFile1, WithPollInterval(100*time.Millisecond)),
-		WithTailAlias("file2", tmpFile2, WithPollInterval(100*time.Millisecond)),
+		WithTailLabel("file1", tmpFile1, WithPollInterval(100*time.Millisecond)),
+		WithTailLabel("file2", tmpFile2, WithPollInterval(100*time.Millisecond)),
 	)
 	defer terminal.Close()
 
@@ -189,8 +186,8 @@ func TestHandler_serveWatcher_NoFilesSelected(t *testing.T) {
 	tmpFile2 := createTestFile(t, "noselect2.log", "")
 
 	terminal := NewTerminal(
-		WithTailAlias("file1", tmpFile1),
-		WithTailAlias("file2", tmpFile2),
+		WithTailLabel("file1", tmpFile1),
+		WithTailLabel("file2", tmpFile2),
 	)
 	defer terminal.Close()
 
@@ -365,7 +362,6 @@ func TestHandler_serveStatic(t *testing.T) {
 	tmpFile := createTestFile(t, "static.log", "test\n")
 
 	terminal := NewTerminal(
-		WithTitle("Static Test"),
 		WithTail(tmpFile),
 	)
 	defer terminal.Close()
@@ -413,8 +409,8 @@ func TestHandler_serveStatic_IndexTemplate(t *testing.T) {
 	tmpFile := createTestFile(t, "index.log", "test\n")
 
 	terminal := NewTerminal(
-		WithTitle("Template Test"),
-		WithTailAlias("testfile", tmpFile),
+		WithTailLabel("testfile", tmpFile),
+		WithLocalization(map[string]string{"Log Viewer": "Template Test"}),
 	)
 	defer terminal.Close()
 
@@ -439,17 +435,13 @@ func TestHandler_serveStatic_IndexTemplate(t *testing.T) {
 
 // TestTerminal_Handler tests Handler creation
 func TestTerminal_Handler(t *testing.T) {
-	terminal := NewTerminal(WithTitle("Handler Test"))
+	terminal := NewTerminal()
 	defer terminal.Close()
 
 	handler := terminal.Handler("/prefix")
 
 	if handler.CutPrefix != "/prefix" {
 		t.Errorf("Expected CutPrefix '/prefix', got '%s'", handler.CutPrefix)
-	}
-
-	if handler.Terminal.Title != "Handler Test" {
-		t.Errorf("Expected Terminal title 'Handler Test', got '%s'", handler.Terminal.Title)
 	}
 
 	if handler.fsServer == nil {

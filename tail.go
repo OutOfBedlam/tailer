@@ -48,7 +48,7 @@ func (mt *MultiTail) Start() error {
 			return fmt.Errorf("failed to start tail for %w", err)
 		}
 		if t, ok := tail.(*Tail); ok {
-			if l := len(t.alias); l > aliasWidth {
+			if l := len(StripAnsiCodes(t.label)); l > aliasWidth {
 				aliasWidth = l
 			}
 		}
@@ -58,13 +58,17 @@ func (mt *MultiTail) Start() error {
 		mt.wg.Add(1)
 		go func(t ITail) {
 			defer mt.wg.Done()
-			alias := ""
+			label := ""
+			labelLen := 0
 			if tt, ok := t.(*Tail); ok {
-				alias = tt.alias
+				label = tt.label
+				labelLen = len(StripAnsiCodes(label))
 			}
-			alias = alias + strings.Repeat(" ", aliasWidth-len(alias))
+			if labelLen < aliasWidth {
+				label = label + strings.Repeat(" ", aliasWidth-labelLen)
+			}
 			for line := range t.Lines() {
-				mt.c <- alias + " " + line
+				mt.c <- label + " " + line
 			}
 		}(tail)
 	}
@@ -94,7 +98,7 @@ func (mt *MultiTail) Lines() <-chan string {
 // which follows the file even if it is rotated
 type Tail struct {
 	filepath     string
-	alias        string
+	label        string // terminal display label for the file, it can contain ANSI color codes
 	c            chan string
 	stopChan     chan struct{}
 	pollInterval time.Duration
@@ -157,9 +161,9 @@ func WithLast(n int) Option {
 	}
 }
 
-func WithAlias(alias string) Option {
+func WithLabel(label string) Option {
 	return func(t *Tail) {
-		t.alias = alias
+		t.label = label
 	}
 }
 
@@ -179,7 +183,7 @@ func WithPlugins(p ...Plugin) Option {
 func New(filename string, opts ...Option) ITail {
 	t := &Tail{
 		filepath:     filename,
-		alias:        filepath.Base(filename),
+		label:        filepath.Base(filename),
 		bufferSize:   100,
 		stopChan:     make(chan struct{}),
 		pollInterval: 1 * time.Second,

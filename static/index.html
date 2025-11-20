@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.Title}}</title>
+    <title>{{ .Localize "Log Viewer"}}</title>
 
     <style>
         html, body {
@@ -216,7 +216,7 @@
             {{if gt (len .Files) 1 }}
             <div class="logtype-select-container">
                 <button class="logtype-select-button" id="logtype-select-btn">
-                    <span id="logtype-select-text">All Logs</span>
+                    <span id="logtype-select-text">{{ .Localize "All Logs" }}</span>
                     <span class="arrow-down" id="logtype-arrow"></span>
                 </button>
                 <div class="logtype-select-dropdown" id="logtype-dropdown">
@@ -229,9 +229,9 @@
                 </div>
             </div>
             {{end}}
-            <input type="text" id="filter-input" placeholder="Enter filter text..." />
-            <button id="apply-btn" class="filter-btn">Apply</button>
-            <button id="clear-btn" class="filter-btn">Clear</button>
+            <input type="text" id="filter-input" placeholder="{{ .Localize "Enter filter text..."}}" />
+            <button id="apply-btn" class="filter-btn">{{ .Localize "Apply"}}</button>
+            <button id="clear-btn" class="filter-btn">{{ .Localize "Clear"}}</button>
         </div>
 
         <!-- Terminal container -->
@@ -398,9 +398,9 @@
                 .map(cb => cb.value);
             
             if (selected.length === 0) {
-                logtypeSelectText.textContent = 'No Logs';
+                logtypeSelectText.textContent = '{{ .Localize "No Logs"}}';
             } else if (selected.length === logtypeCheckboxes.length) {
-                logtypeSelectText.textContent = 'All Logs';
+                logtypeSelectText.textContent = '{{ .Localize "All Logs" }}';
             } else {
                 logtypeSelectText.textContent = selected.join(', ');
             }
