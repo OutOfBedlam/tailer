@@ -373,7 +373,7 @@ func TestTailWithColoringPlugin(t *testing.T) {
 	f.Close()
 
 	// Create tail with coloring plugin
-	coloringPlugin := NewSyntaxColoring("levels")
+	coloringPlugin := NewWithSyntaxHighlighting("levels")
 	tail := New(testFile,
 		WithPollInterval(100*time.Millisecond),
 		WithPlugins(coloringPlugin),

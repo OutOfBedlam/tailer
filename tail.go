@@ -167,9 +167,9 @@ func WithLabel(label string) Option {
 	}
 }
 
-func WithSyntaxColoring(syntax ...string) Option {
+func WithSyntaxHighlighting(syntax ...string) Option {
 	return func(t *Tail) {
-		t.plugins = append(t.plugins, NewSyntaxColoring(syntax...))
+		t.plugins = append(t.plugins, NewWithSyntaxHighlighting(syntax...))
 	}
 }
 

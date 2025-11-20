@@ -59,7 +59,7 @@ const (
 	ColorWhite         = "\033[97m"       // White
 )
 
-func NewSyntaxColoring(syntax ...string) Plugin {
+func NewWithSyntaxHighlighting(syntax ...string) Plugin {
 	return syntaxColoring(syntax)
 }
 
